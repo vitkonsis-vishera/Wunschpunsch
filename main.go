@@ -90,6 +90,30 @@ const (
 	tabLogs
 )
 
+type logSubTab int
+
+const (
+	logSubTabAll logSubTab = iota
+	logSubTabPostgres
+	logSubTabHA
+	logSubTabSystem
+)
+
+func (l logSubTab) String() string {
+	switch l {
+	case logSubTabAll:
+		return "All Logs"
+	case logSubTabPostgres:
+		return "Postgres"
+	case logSubTabHA:
+		return "HA Engine"
+	case logSubTabSystem:
+		return "System"
+	default:
+		return "Unknown"
+	}
+}
+
 type engineType int
 
 const (
@@ -141,6 +165,7 @@ type clusterUpdateMsg struct {
 
 type model struct {
 	tab               activeTab
+	activeLogSubTab   logSubTab
 	table             table.Model
 	logsViewport      viewport.Model
 	detectedEngine    engineType
@@ -228,6 +253,7 @@ func initialModel() model {
 
 	return model{
 		tab:              tabConnect,
+		activeLogSubTab:  logSubTabAll,
 		table:            t,
 		logsViewport:     vp,
 		inputs:           inputs,
@@ -348,6 +374,7 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		switch m.detectedEngine {
 		case EnginePatroni:
 			if m.patroniClient != nil {
+				// 1. Читаем историю переключений Patroni
 				history, err := m.patroniClient.GetHistory(ctx)
 				if err == nil {
 					for _, h := range history {
@@ -360,14 +387,37 @@ func (m model) fetchLogsCmd() tea.Cmd {
 						})
 					}
 				}
+
+				// 2. Если история пуста, добавляем запись о текущем состоянии HA Engine
+				if m.lastStatus != nil {
+					pauseState := "active"
+					if m.lastStatus.Pause {
+						pauseState = "paused (maintenance)"
+					}
+					newLogs = append(newLogs, LogEntry{
+						Timestamp: now,
+						Node:      "Patroni",
+						Component: "HA Engine",
+						Level:     "INFO",
+						Message:   fmt.Sprintf("Cluster state: %s, Members count: %d", pauseState, len(m.lastStatus.Members)),
+					})
+				}
 			}
 		case EnginePacemaker:
 			newLogs = append(newLogs, LogEntry{
 				Timestamp: now,
 				Node:      m.targetHost,
-				Component: "Pacemaker",
+				Component: "HA Engine",
 				Level:     "INFO",
 				Message:   "Corosync ring state: ACTIVE. All CRM resources running ok.",
+			})
+		case EngineSingleNode:
+			newLogs = append(newLogs, LogEntry{
+				Timestamp: now,
+				Node:      m.targetHost,
+				Component: "System",
+				Level:     "INFO",
+				Message:   "Running in Standalone PG mode without HA Engine.",
 			})
 		}
 
@@ -589,6 +639,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.tab == tabLogs && m.connected {
+			switch msg.String() {
+			case "[", "h", "left":
+				if m.activeLogSubTab > logSubTabAll {
+					m.activeLogSubTab--
+					m.updateLogsViewport()
+					return m, nil
+				}
+			case "]", "l", "right":
+				if m.activeLogSubTab < logSubTabSystem {
+					m.activeLogSubTab++
+					m.updateLogsViewport()
+					return m, nil
+				}
+			}
+		}
+
 		if m.tab == tabEngineStats && msg.String() == "ctrl+d" {
 			m.showMetricsConfig = true
 			return m, nil
@@ -725,7 +792,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) updateLogsViewport() {
 	var logLines []string
+
 	for _, entry := range m.logs {
+		switch m.activeLogSubTab {
+		case logSubTabPostgres:
+			if entry.Component != "Postgres" {
+				continue
+			}
+		case logSubTabHA:
+			if entry.Component != "HA Engine" && entry.Component != "Patroni" && entry.Component != "Pacemaker" {
+				continue
+			}
+		case logSubTabSystem:
+			if entry.Component != "System" && entry.Component != "Host" {
+				continue
+			}
+		}
+
 		timeStr := lipgloss.NewStyle().Foreground(subtleColor).Render("[" + entry.Timestamp + "]")
 		nodeStr := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("[" + entry.Node + "]")
 		compStr := lipgloss.NewStyle().Foreground(secondaryColor).Render("[" + entry.Component + "]")
@@ -740,6 +823,10 @@ func (m *model) updateLogsViewport() {
 
 		line := fmt.Sprintf("%s %s %s %s %s", timeStr, nodeStr, compStr, levelStr, entry.Message)
 		logLines = append(logLines, line)
+	}
+
+	if len(logLines) == 0 {
+		logLines = append(logLines, lipgloss.NewStyle().Foreground(subtleColor).Render("No log entries for this filter."))
 	}
 
 	m.logsViewport.SetContent(strings.Join(logLines, "\n"))
@@ -907,10 +994,35 @@ func (m model) View() string {
 			}
 
 		case tabLogs:
+			subTabs := []logSubTab{logSubTabAll, logSubTabPostgres, logSubTabHA, logSubTabSystem}
+			var renderedSubTabs []string
+
+			for _, st := range subTabs {
+				label := fmt.Sprintf(" %s ", st.String())
+				if st == m.activeLogSubTab {
+					renderedSubTabs = append(renderedSubTabs, lipgloss.NewStyle().
+						Bold(true).
+						Foreground(lipgloss.Color("#11111B")).
+						Background(primaryColor).
+						Render(label))
+				} else {
+					renderedSubTabs = append(renderedSubTabs, lipgloss.NewStyle().
+						Foreground(subtleColor).
+						Background(lipgloss.Color("#313244")).
+						Render(label))
+				}
+			}
+
+			subTabHeader := lipgloss.JoinHorizontal(lipgloss.Top, renderedSubTabs...)
+
 			body = currentBoxStyle.Render(
 				lipgloss.JoinVertical(
 					lipgloss.Left,
-					lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Unified Real-Time Cluster Events & HA Stream"),
+					lipgloss.JoinHorizontal(lipgloss.Left,
+						lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Stream Logs:"),
+						"  ",
+						subTabHeader,
+					),
 					"\n",
 					m.logsViewport.View(),
 				),
@@ -921,12 +1033,12 @@ func (m model) View() string {
 	footerHint := "Tab/Arrow: Move / Switch Tab  •  Ctrl+C: Quit"
 	if m.tab == tabEngineStats {
 		if m.showMetricsConfig {
-			footerHint = "Up/Down: Navigate  •  Space: Toggle Metric  •  Esc/Ctrl+D: Save & Close"
+			footerHint = "Up/Down: Navigate  •  Space: Toggle Metric  •  Esc/Ctrl+D: Save"
 		} else {
 			footerHint = "Ctrl+D: Metrics Settings  •  Tab: Switch Tab  •  Ctrl+C: Quit"
 		}
 	} else if m.tab == tabLogs {
-		footerHint = "Up/Down/PgUp/PgDn: Scroll Logs  •  Esc/q: Back to Topology  •  Tab: Switch Tab  •  Ctrl+C: Quit"
+		footerHint = "[ / ] or Left/Right: Switch Log Filter  •  Up/Down: Scroll  •  Esc/q: Back  •  Ctrl+C: Quit"
 	}
 
 	footer := statusLineStyle.Render(footerHint)
@@ -942,7 +1054,7 @@ func (m model) View() string {
 	)
 }
 
-func (m model) renderMetricsConfigView(containerWidth int) string {
+func (m *model) renderMetricsConfigView(containerWidth int) string {
 	var lines []string
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Настройка отображаемых метрик (Space — вкл/выкл, Esc — выход)"))
 	lines = append(lines, "")
