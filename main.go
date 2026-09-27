@@ -374,7 +374,6 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		switch m.detectedEngine {
 		case EnginePatroni:
 			if m.patroniClient != nil {
-				// 1. Читаем историю переключений Patroni
 				history, err := m.patroniClient.GetHistory(ctx)
 				if err == nil {
 					for _, h := range history {
@@ -387,38 +386,21 @@ func (m model) fetchLogsCmd() tea.Cmd {
 						})
 					}
 				}
-
-				// 2. Если история пуста, добавляем запись о текущем состоянии HA Engine
-				if m.lastStatus != nil {
-					pauseState := "active"
-					if m.lastStatus.Pause {
-						pauseState = "paused (maintenance)"
-					}
-					newLogs = append(newLogs, LogEntry{
-						Timestamp: now,
-						Node:      "Patroni",
-						Component: "HA Engine",
-						Level:     "INFO",
-						Message:   fmt.Sprintf("Cluster state: %s, Members count: %d", pauseState, len(m.lastStatus.Members)),
-					})
-				}
 			}
 		case EnginePacemaker:
-			newLogs = append(newLogs, LogEntry{
-				Timestamp: now,
-				Node:      m.targetHost,
-				Component: "HA Engine",
-				Level:     "INFO",
-				Message:   "Corosync ring state: ACTIVE. All CRM resources running ok.",
-			})
+			// Фиксируем логи Pacemaker при необходимости
 		case EngineSingleNode:
-			newLogs = append(newLogs, LogEntry{
-				Timestamp: now,
-				Node:      m.targetHost,
-				Component: "System",
-				Level:     "INFO",
-				Message:   "Running in Standalone PG mode without HA Engine.",
-			})
+			// В режиме SingleNode не спамим одинаковым сообщением каждые 2 секунды,
+			// пишем событие только если массив логов еще пуст.
+			if len(m.logs) == 0 {
+				newLogs = append(newLogs, LogEntry{
+					Timestamp: now,
+					Node:      m.targetHost,
+					Component: "System",
+					Level:     "INFO",
+					Message:   "Initialized in Standalone PG mode (No HA Engine).",
+				})
+			}
 		}
 
 		nodes := []string{m.targetHost}
@@ -432,6 +414,7 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		for _, host := range nodes {
 			metrics := m.pgManager.FetchNodeMetrics(ctx, host)
 			if metrics.Error != nil {
+				// Ошибки заносим всегда
 				newLogs = append(newLogs, LogEntry{
 					Timestamp: now,
 					Node:      host,
@@ -440,13 +423,26 @@ func (m model) fetchLogsCmd() tea.Cmd {
 					Message:   fmt.Sprintf("Health Check Failed: %v", metrics.Error),
 				})
 			} else {
-				newLogs = append(newLogs, LogEntry{
-					Timestamp: now,
-					Node:      host,
-					Component: "Postgres",
-					Level:     "INFO",
-					Message:   fmt.Sprintf("Connections: %d/%d | Cache Hit: %.1f%%", metrics.ActiveConnections, metrics.MaxConnections, metrics.CacheHitRatio),
-				})
+				// Записываем метрику, только если она изменилась с последнего раза или если массив логов пуст
+				msg := fmt.Sprintf("Connections: %d/%d | Cache Hit: %.1f%%", metrics.ActiveConnections, metrics.MaxConnections, metrics.CacheHitRatio)
+
+				shouldLog := true
+				if len(m.logs) > 0 {
+					lastLog := m.logs[len(m.logs)-1]
+					if lastLog.Node == host && lastLog.Message == msg {
+						shouldLog = false // пропускаем дублирующий лог
+					}
+				}
+
+				if shouldLog {
+					newLogs = append(newLogs, LogEntry{
+						Timestamp: now,
+						Node:      host,
+						Component: "Postgres",
+						Level:     "INFO",
+						Message:   msg,
+					})
+				}
 			}
 		}
 
