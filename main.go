@@ -80,6 +80,44 @@ var (
 			Padding(0, 1)
 )
 
+type language int
+
+const (
+	LangRU language = iota
+	LangEN
+)
+
+type themeType int
+
+const (
+	ThemeCatppuccin themeType = iota
+	ThemeNord
+	ThemeMonokai
+)
+
+func (t themeType) String() string {
+	switch t {
+	case ThemeNord:
+		return "Nord"
+	case ThemeMonokai:
+		return "Monokai"
+	default:
+		return "Catppuccin"
+	}
+}
+
+type appSettings struct {
+	Language        language
+	Theme           themeType
+	PollIntervalSec int
+}
+
+var defaultSettings = appSettings{
+	Language:        LangRU,
+	Theme:           ThemeCatppuccin,
+	PollIntervalSec: 2,
+}
+
 type activeTab int
 
 const (
@@ -88,6 +126,7 @@ const (
 	tabEngineStats
 	tabActions
 	tabLogs
+	tabSettings
 )
 
 type logSubTab int
@@ -179,6 +218,10 @@ type model struct {
 	showMetricsConfig bool
 	hostCPUHistory    []float64
 
+	// Settings state
+	settings       appSettings
+	settingsCursor int
+
 	// Form Inputs
 	inputs     []textinput.Model
 	focusIndex int
@@ -263,7 +306,12 @@ func initialModel() model {
 		lastMetrics:      make(map[string]postgres.NodeMetrics),
 		logs:             []LogEntry{},
 		availableMetrics: defaultMetrics(),
+		settings:         defaultSettings,
 	}
+}
+
+func (m model) Init() tea.Cmd {
+	return textinput.Blink
 }
 
 func parseHostAndPort(rawInput string) (string, int) {
@@ -388,10 +436,8 @@ func (m model) fetchLogsCmd() tea.Cmd {
 				}
 			}
 		case EnginePacemaker:
-			// Фиксируем логи Pacemaker при необходимости
+			// Логи Pacemaker
 		case EngineSingleNode:
-			// В режиме SingleNode не спамим одинаковым сообщением каждые 2 секунды,
-			// пишем событие только если массив логов еще пуст.
 			if len(m.logs) == 0 {
 				newLogs = append(newLogs, LogEntry{
 					Timestamp: now,
@@ -414,7 +460,6 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		for _, host := range nodes {
 			metrics := m.pgManager.FetchNodeMetrics(ctx, host)
 			if metrics.Error != nil {
-				// Ошибки заносим всегда
 				newLogs = append(newLogs, LogEntry{
 					Timestamp: now,
 					Node:      host,
@@ -423,14 +468,13 @@ func (m model) fetchLogsCmd() tea.Cmd {
 					Message:   fmt.Sprintf("Health Check Failed: %v", metrics.Error),
 				})
 			} else {
-				// Записываем метрику, только если она изменилась с последнего раза или если массив логов пуст
 				msg := fmt.Sprintf("Connections: %d/%d | Cache Hit: %.1f%%", metrics.ActiveConnections, metrics.MaxConnections, metrics.CacheHitRatio)
 
 				shouldLog := true
 				if len(m.logs) > 0 {
 					lastLog := m.logs[len(m.logs)-1]
 					if lastLog.Node == host && lastLog.Message == msg {
-						shouldLog = false // пропускаем дублирующий лог
+						shouldLog = false
 					}
 				}
 
@@ -516,14 +560,13 @@ func (m model) executeActionCmd(actionType string) tea.Cmd {
 	}
 }
 
-func tickCmd() tea.Cmd {
-	return tea.Every(2*time.Second, func(t time.Time) tea.Msg {
+func tickCmd(intervalSec int) tea.Cmd {
+	if intervalSec <= 0 {
+		intervalSec = 2
+	}
+	return tea.Every(time.Duration(intervalSec)*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
-}
-
-func (m model) Init() tea.Cmd {
-	return textinput.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -543,7 +586,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		if m.connected {
-			cmds := []tea.Cmd{m.fetchClusterDataCmd(), tickCmd()}
+			cmds := []tea.Cmd{m.fetchClusterDataCmd(), tickCmd(m.settings.PollIntervalSec)}
 			if m.tab == tabLogs {
 				cmds = append(cmds, m.fetchLogsCmd())
 			}
@@ -635,6 +678,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.tab == tabSettings {
+			switch msg.String() {
+			case "up", "k":
+				if m.settingsCursor > 0 {
+					m.settingsCursor--
+				}
+			case "down", "j":
+				if m.settingsCursor < 2 {
+					m.settingsCursor++
+				}
+			case "left", "h":
+				m.adjustSetting(-1)
+			case "right", "l", "enter", " ":
+				m.adjustSetting(1)
+			}
+		}
+
 		if m.tab == tabLogs && m.connected {
 			switch msg.String() {
 			case "[", "h", "left":
@@ -665,7 +725,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.String() == "q" || msg.String() == "esc" {
-			if m.tab == tabLogs {
+			if m.tab == tabLogs || m.tab == tabSettings {
 				m.tab = tabTopology
 				return m, nil
 			}
@@ -680,12 +740,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.connected {
 			switch msg.String() {
 			case "tab", "l", "right":
-				if m.tab > tabConnect {
-					m.tab = (m.tab % 4) + 1
+				if m.tab > tabConnect && m.tab != tabSettings {
+					m.tab = (m.tab % 5) + 1
 				}
 			case "shift+tab", "h", "left":
-				if m.tab > tabConnect {
-					m.tab = (m.tab-2+4)%4 + 1
+				if m.tab > tabConnect && m.tab != tabSettings {
+					m.tab = (m.tab-2+5)%5 + 1
 				}
 			case "1":
 				m.tab = tabTopology
@@ -696,6 +756,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "4":
 				m.tab = tabLogs
 				return m, m.fetchLogsCmd()
+			case "5":
+				m.tab = tabSettings
 			}
 		}
 
@@ -763,7 +825,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.connecting = true
 				m.lastError = nil
-				return m, tea.Batch(m.fetchClusterDataCmd(), tickCmd())
+				return m, tea.Batch(m.fetchClusterDataCmd(), tickCmd(m.settings.PollIntervalSec))
 			}
 
 			cmd := m.updateInputs(msg)
@@ -784,6 +846,103 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *model) adjustSetting(delta int) {
+	switch m.settingsCursor {
+	case 0:
+		if m.settings.Language == LangRU {
+			m.settings.Language = LangEN
+		} else {
+			m.settings.Language = LangRU
+		}
+	case 1:
+		next := (int(m.settings.Theme) + delta + 3) % 3
+		m.settings.Theme = themeType(next)
+		m.applyTheme(m.settings.Theme)
+	case 2:
+		m.settings.PollIntervalSec += delta
+		if m.settings.PollIntervalSec < 1 {
+			m.settings.PollIntervalSec = 1
+		} else if m.settings.PollIntervalSec > 10 {
+			m.settings.PollIntervalSec = 10
+		}
+	}
+}
+
+func (m *model) applyTheme(t themeType) {
+	switch t {
+	case ThemeNord:
+		primaryColor = lipgloss.Color("#88C0D0")
+		secondaryColor = lipgloss.Color("#81A1C1")
+		successColor = lipgloss.Color("#A3BE8C")
+		warningColor = lipgloss.Color("#EBCB8B")
+		dangerColor = lipgloss.Color("#BF616A")
+		subtleColor = lipgloss.Color("#4C566A")
+	case ThemeMonokai:
+		primaryColor = lipgloss.Color("#66D9EF")
+		secondaryColor = lipgloss.Color("#AE81FF")
+		successColor = lipgloss.Color("#A6E22E")
+		warningColor = lipgloss.Color("#E6DB74")
+		dangerColor = lipgloss.Color("#F92672")
+		subtleColor = lipgloss.Color("#75715E")
+	default:
+		primaryColor = lipgloss.Color("#89B4FA")
+		secondaryColor = lipgloss.Color("#F5C2E7")
+		successColor = lipgloss.Color("#A6E3A1")
+		warningColor = lipgloss.Color("#F9E2AF")
+		dangerColor = lipgloss.Color("#F38BA8")
+		subtleColor = lipgloss.Color("#6C7086")
+	}
+
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(primaryColor).Padding(0, 1)
+	statusLineStyle = lipgloss.NewStyle().Foreground(subtleColor).Padding(0, 1)
+	activeTabStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(secondaryColor).Padding(0, 2)
+	boxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primaryColor).Padding(1)
+}
+
+func (m model) renderSettingsView() string {
+	var lines []string
+	isRU := m.settings.Language == LangRU
+
+	title := "Глобальные настройки (Global Settings)"
+	if !isRU {
+		title = "Global App Settings"
+	}
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(title))
+	lines = append(lines, "")
+
+	langVal := "Русский (RU)"
+	if m.settings.Language == LangEN {
+		langVal = "English (EN)"
+	}
+	langLine := fmt.Sprintf("  Язык интерфейса / Language : < %s >", langVal)
+
+	themeLine := fmt.Sprintf("  Цветовая схема / Theme     : < %s >", m.settings.Theme.String())
+
+	pollLine := fmt.Sprintf("  Интервал опроса / Poll Rate : < %d sec >", m.settings.PollIntervalSec)
+
+	items := []string{langLine, themeLine, pollLine}
+
+	for i, item := range items {
+		cursor := " "
+		if i == m.settingsCursor {
+			cursor = ">"
+			item = lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(cursor + item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(subtleColor).Render(cursor + item)
+		}
+		lines = append(lines, item)
+	}
+
+	lines = append(lines, "")
+	hint := "Up/Down: Выбор параметра  •  Left/Right/Space: Изменить"
+	if !isRU {
+		hint = "Up/Down: Select Option  •  Left/Right/Space: Toggle"
+	}
+	lines = append(lines, lipgloss.NewStyle().Foreground(subtleColor).Render(hint))
+
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) updateLogsViewport() {
@@ -863,7 +1022,7 @@ func (m model) View() string {
 		lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Engine: "+m.detectedEngine.String()) +
 		statusLineStyle.Render(" | Target: "+m.pgFlavor)
 
-	tabs := []string{"0: Connect", "1: Topology", "2: Metrics", "3: Actions", "4: Event Logs"}
+	tabs := []string{"0: Connect", "1: Topology", "2: Metrics", "3: Actions", "4: Event Logs", "5: Settings"}
 	var renderedTabs []string
 	for i, t := range tabs {
 		if activeTab(i) == m.tab {
@@ -1023,6 +1182,9 @@ func (m model) View() string {
 					m.logsViewport.View(),
 				),
 			)
+
+		case tabSettings:
+			body = currentBoxStyle.Render(m.renderSettingsView())
 		}
 	}
 
@@ -1035,6 +1197,8 @@ func (m model) View() string {
 		}
 	} else if m.tab == tabLogs {
 		footerHint = "[ / ] or Left/Right: Switch Log Filter  •  Up/Down: Scroll  •  Esc/q: Back  •  Ctrl+C: Quit"
+	} else if m.tab == tabSettings {
+		footerHint = "Up/Down: Navigate  •  Left/Right/Space: Change Option  •  Esc/q: Back  •  Ctrl+C: Quit"
 	}
 
 	footer := statusLineStyle.Render(footerHint)
