@@ -1,4 +1,5 @@
 name: CI/CD Pipeline
+
 on:
   push:
     branches: [ "main" ]
@@ -68,7 +69,7 @@ jobs:
   release:
     name: Build & Publish Release Assets
     needs: test
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -85,7 +86,7 @@ jobs:
 
       - name: Cross-Compile Binaries
         run: |
-          # Linux AMD64 (создаем основной бинарник wunschpunsch и версию с суффиксом)
+          # Linux AMD64
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o wunschpunsch .
           cp wunschpunsch wunschpunsch-linux-amd64
 
@@ -98,6 +99,8 @@ jobs:
       - name: Upload Binaries to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          prerelease: ${{ github.ref_type != 'tag' }}
           files: |
             wunschpunsch
             wunschpunsch-linux-amd64
