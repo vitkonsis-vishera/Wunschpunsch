@@ -100,7 +100,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          prerelease: false
+          make_latest: true
           files: |
             wunschpunsch
             wunschpunsch-linux-amd64
