@@ -387,14 +387,16 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 
 		for _, member := range status.Members {
 			wg.Add(1)
-			go func(host string) {
+			go func(mem patroni.Member) {
 				defer wg.Done()
-				metrics := m.pgManager.FetchNodeMetrics(ctx, host)
+
+				nodeHost := mem.Host
+				metrics := m.pgManager.FetchNodeMetrics(ctx, nodeHost)
 
 				mu.Lock()
-				metricsMap[host] = metrics
+				metricsMap[nodeHost] = metrics
 				mu.Unlock()
-			}(member.Host)
+			}(member)
 		}
 
 		wg.Wait()
@@ -810,12 +812,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pgPass = m.inputs[2].Placeholder
 				}
 
+				// Формируем эндпоинты для Patroni REST API:
+				// 1. Введённый пользователем адрес
+				// 2. Дополнительно узел на стандартном порту Patroni (8008)
+				httpEndpoints := []string{}
+
 				httpEndpoint := rawEndpoint
 				if !strings.HasPrefix(httpEndpoint, "http://") && !strings.HasPrefix(httpEndpoint, "https://") {
 					httpEndpoint = "http://" + httpEndpoint
 				}
+				httpEndpoints = append(httpEndpoints, httpEndpoint)
 
-				m.patroniClient = patroni.NewClient([]string{httpEndpoint}, 1500*time.Millisecond)
+				patroniDefaultEndpoint := fmt.Sprintf("http://%s:8008", host)
+				if patroniDefaultEndpoint != httpEndpoint {
+					httpEndpoints = append(httpEndpoints, patroniDefaultEndpoint)
+				}
+
+				m.patroniClient = patroni.NewClient(httpEndpoints, 1500*time.Millisecond)
 				m.pgManager = postgres.NewPGPoolManager(postgres.Config{
 					User:     pgUser,
 					Password: pgPass,
