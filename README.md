@@ -78,10 +78,10 @@ go build -o wunschpunsch main.go
   - [x] Maintenance Mode toggle (Pause/Resume)
 - [x] Real-time Patroni log streaming
   UI Enhancements & Application Settings
-- [ ] **Global Settings Menu (Modal / Settings Tab):**
-  - [ ] On-the-fly UI Language Switching (English / Russian) via i18n.
-  - [ ] Color Scheme Selection (Catppuccin, Nord, Monokai, High Contrast).
-  - [ ] Configurable Cluster Polling Interval (Default: 2s).
+- [x] **Global Settings Menu (Modal / Settings Tab):**
+  - [x] On-the-fly UI Language Switching (English / Russian) via i18n.
+  - [x] Color Scheme Selection (Catppuccin, Nord, Monokai, High Contrast).
+  - [x] Configurable Cluster Polling Interval (Default: 2s).
 - [ ] **Data Export & Logging:**
   - [ ] Local Metrics Snapshot Export (JSON / CSV).
   - [ ] Event Log Dump & Auto-saving to local file (`~/.wunschpunsch/logs/app.log`).
@@ -188,11 +188,11 @@ go build -o wunschpunsch main.go
   - [x] Реинициализация реплики (Reinitialize)
   - [x] Переключение режима обслуживания (Pause/Resume)
 - [x] Просмотр потока логов событий Patroni в реальном времени
-Улучшения UI & Настройки (App Settings)
-[ ] Экран глобальных настроек (Settings Modal/Tab):
- - [ ] Переключение языка интерфейса (RU / EN) «на лету» (i18n).
- - [ ] Выбор цветовой схемы (Catppuccin, Nord, Monokai, High Contrast).
- - [ ] Настройка интервала опрашивания кластера (default: 2s).
+[x] Улучшения UI & Настройки (App Settings)
+   [x] Экран глобальных настроек (Settings Modal/Tab):
+ - [x] Переключение языка интерфейса (RU / EN) «на лету» (i18n).
+ - [x] Выбор цветовой схемы (Catppuccin, Nord, Monokai, High Contrast).
+ - [x] Настройка интервала опрашивания кластера (default: 2s).
 Экспорт данных & Логирование:
  - [ ] Сохранение текущего снимка метрик в JSON / CSV на локальную машину.
  - [ ] Дамп и автосохранение истории событий логов в файл (~/.cluster-tui/logs/app.log).
