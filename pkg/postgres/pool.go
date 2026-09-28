@@ -58,13 +58,18 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 		return pool, nil
 	}
 
-	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=prefer&connect_timeout=3",
-		m.cfg.User, m.cfg.Password, host, m.cfg.Port, m.cfg.Database)
+	// Формируем DSN без логина и пароля
+	connString := fmt.Sprintf("postgres://%s:%d/%s?sslmode=prefer&connect_timeout=3",
+		host, m.cfg.Port, m.cfg.Database)
 
 	poolConfig, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config for %s: %w", host, err)
 	}
+
+	// Задаем учетные данные напрямую
+	poolConfig.ConnConfig.User = m.cfg.User
+	poolConfig.ConnConfig.Password = m.cfg.Password
 
 	poolConfig.MaxConns = 3
 	poolConfig.MinConns = 1
