@@ -409,6 +409,23 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 	}
 }
 
+func (m model) isLogDuplicate(node, component, message string) bool {
+	if len(m.logs) == 0 {
+		return false
+	}
+	start := len(m.logs) - 10
+	if start < 0 {
+		start = 0
+	}
+	for i := len(m.logs) - 1; i >= start; i-- {
+		l := m.logs[i]
+		if l.Node == node && l.Component == component && l.Message == message {
+			return true
+		}
+	}
+	return false
+}
+
 func (m model) fetchLogsCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.pgManager == nil {
@@ -421,36 +438,111 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		var newLogs []LogEntry
 		now := time.Now().Format("15:04:05")
 
+		// 1. HA Engine Logs
 		switch m.detectedEngine {
 		case EnginePatroni:
 			if m.patroniClient != nil {
 				history, err := m.patroniClient.GetHistory(ctx)
 				if err == nil {
 					for _, h := range history {
+						msg := fmt.Sprintf("Timeline %d (LSN %d): %s", h.TL, h.LSN, h.Reason)
+						if !m.isLogDuplicate("Patroni Cluster", "HA Engine", msg) {
+							newLogs = append(newLogs, LogEntry{
+								Timestamp: h.Timestamp,
+								Node:      "Patroni Cluster",
+								Component: "HA Engine",
+								Level:     "WARN",
+								Message:   msg,
+							})
+						}
+					}
+				}
+
+				if m.lastStatus != nil {
+					leaderName := "Unknown"
+					nodesCount := len(m.lastStatus.Members)
+					for _, mem := range m.lastStatus.Members {
+						if mem.Role == "leader" {
+							leaderName = mem.Name
+						}
+						nodeMsg := fmt.Sprintf("Node status: role=%s, state=%s, timeline=%d, lag=%d MB",
+							mem.Role, mem.State, mem.Timeline, mem.Lag/(1024*1024))
+						if !m.isLogDuplicate(mem.Name, "HA Engine", nodeMsg) {
+							newLogs = append(newLogs, LogEntry{
+								Timestamp: now,
+								Node:      mem.Name,
+								Component: "HA Engine",
+								Level:     "INFO",
+								Message:   nodeMsg,
+							})
+						}
+					}
+
+					maintStatus := "OFF"
+					if m.lastStatus.Pause {
+						maintStatus = "ON (Paused)"
+					}
+					clusterMsg := fmt.Sprintf("Cluster Scope: %s | Leader: %s | Nodes: %d | Maintenance: %s",
+						m.lastStatus.Scope, leaderName, nodesCount, maintStatus)
+					if !m.isLogDuplicate("Patroni Cluster", "HA Engine", clusterMsg) {
 						newLogs = append(newLogs, LogEntry{
-							Timestamp: h.Timestamp,
+							Timestamp: now,
 							Node:      "Patroni Cluster",
 							Component: "HA Engine",
-							Level:     "WARN",
-							Message:   fmt.Sprintf("Timeline %d (LSN %d): %s", h.TL, h.LSN, h.Reason),
+							Level:     "INFO",
+							Message:   clusterMsg,
 						})
 					}
 				}
 			}
-		case EnginePacemaker:
-			// Логи Pacemaker
+
 		case EngineSingleNode:
-			if len(m.logs) == 0 {
+			msg := "Initialized in Standalone PG mode (No HA Engine)."
+			if !m.isLogDuplicate(m.targetHost, "HA Engine", msg) {
 				newLogs = append(newLogs, LogEntry{
 					Timestamp: now,
 					Node:      m.targetHost,
-					Component: "System",
+					Component: "HA Engine",
 					Level:     "INFO",
-					Message:   "Initialized in Standalone PG mode (No HA Engine).",
+					Message:   msg,
 				})
 			}
 		}
 
+		// 2. System / Host Logs
+		hostMetrics, err := FetchHostMetrics(m.hostCPUHistory)
+		if err == nil {
+			sysMsg := fmt.Sprintf("CPU: %.1f%% | RAM: %.1f%% (%.1f/%.1f GB) | Disk: %.1f%% (%.1f/%.1f GB)",
+				hostMetrics.CPUUsage, hostMetrics.RAMUsage, hostMetrics.RAMUsedGB, hostMetrics.RAMTotalGB,
+				hostMetrics.DiskUsage, hostMetrics.DiskUsedGB, hostMetrics.DiskTotalGB)
+
+			if !m.isLogDuplicate(m.targetHost, "System", sysMsg) {
+				level := "INFO"
+				if hostMetrics.CPUUsage > 85 || hostMetrics.RAMUsage > 85 || hostMetrics.DiskUsage > 90 {
+					level = "WARN"
+				}
+				newLogs = append(newLogs, LogEntry{
+					Timestamp: now,
+					Node:      m.targetHost,
+					Component: "System",
+					Level:     level,
+					Message:   sysMsg,
+				})
+			}
+		} else {
+			errMsg := fmt.Sprintf("Failed to fetch host metrics: %v", err)
+			if !m.isLogDuplicate(m.targetHost, "System", errMsg) {
+				newLogs = append(newLogs, LogEntry{
+					Timestamp: now,
+					Node:      m.targetHost,
+					Component: "System",
+					Level:     "ERROR",
+					Message:   errMsg,
+				})
+			}
+		}
+
+		// 3. Postgres Logs
 		nodes := []string{m.targetHost}
 		if m.lastStatus != nil && len(m.lastStatus.Members) > 0 {
 			nodes = nil
@@ -462,31 +554,26 @@ func (m model) fetchLogsCmd() tea.Cmd {
 		for _, host := range nodes {
 			metrics := m.pgManager.FetchNodeMetrics(ctx, host)
 			if metrics.Error != nil {
-				newLogs = append(newLogs, LogEntry{
-					Timestamp: now,
-					Node:      host,
-					Component: "Postgres",
-					Level:     "ERROR",
-					Message:   fmt.Sprintf("Health Check Failed: %v", metrics.Error),
-				})
-			} else {
-				msg := fmt.Sprintf("Connections: %d/%d | Cache Hit: %.1f%%", metrics.ActiveConnections, metrics.MaxConnections, metrics.CacheHitRatio)
-
-				shouldLog := true
-				if len(m.logs) > 0 {
-					lastLog := m.logs[len(m.logs)-1]
-					if lastLog.Node == host && lastLog.Message == msg {
-						shouldLog = false
-					}
+				errMsg := fmt.Sprintf("Health Check Failed: %v", metrics.Error)
+				if !m.isLogDuplicate(host, "Postgres", errMsg) {
+					newLogs = append(newLogs, LogEntry{
+						Timestamp: now,
+						Node:      host,
+						Component: "Postgres",
+						Level:     "ERROR",
+						Message:   errMsg,
+					})
 				}
-
-				if shouldLog {
+			} else {
+				pgMsg := fmt.Sprintf("Connections: %d/%d | Cache Hit: %.1f%%",
+					metrics.ActiveConnections, metrics.MaxConnections, metrics.CacheHitRatio)
+				if !m.isLogDuplicate(host, "Postgres", pgMsg) {
 					newLogs = append(newLogs, LogEntry{
 						Timestamp: now,
 						Node:      host,
 						Component: "Postgres",
 						Level:     "INFO",
-						Message:   msg,
+						Message:   pgMsg,
 					})
 				}
 			}
@@ -504,57 +591,88 @@ func (m model) executeActionCmd(actionType string) tea.Cmd {
 		var err error
 		var msg string
 
-		switch actionType {
-		case "switchover":
-			if m.detectedEngine == EnginePatroni && m.patroniClient != nil {
-				var leader, candidate string
-				if m.lastStatus != nil {
-					for _, mem := range m.lastStatus.Members {
-						if mem.Role == "leader" {
-							leader = mem.Name
-						} else if candidate == "" {
-							candidate = mem.Name
-						}
+		if m.detectedEngine != EnginePatroni || m.patroniClient == nil {
+			return actionResultMsg{
+				message: "Action unavailable for non-Patroni cluster",
+				err:     fmt.Errorf("unsupported engine"),
+			}
+		}
+
+		var leaderName, leaderHost string
+		var candidateName, candidateHost string
+
+		if m.lastStatus != nil {
+			for _, mem := range m.lastStatus.Members {
+				if mem.Role == "leader" {
+					leaderName = mem.Name
+					leaderHost = mem.Host
+				}
+			}
+
+			selectedRow := m.table.SelectedRow()
+			if len(selectedRow) > 0 {
+				selName := selectedRow[0]
+				for _, mem := range m.lastStatus.Members {
+					if mem.Name == selName && mem.Role != "leader" {
+						candidateName = mem.Name
+						candidateHost = mem.Host
+						break
 					}
 				}
-				err = m.patroniClient.Switchover(ctx, leader, candidate)
-				msg = fmt.Sprintf("Switchover initiated (Leader: %s -> Candidate: %s)", leader, candidate)
+			}
+
+			if candidateName == "" {
+				for _, mem := range m.lastStatus.Members {
+					if mem.Role != "leader" {
+						candidateName = mem.Name
+						candidateHost = mem.Host
+						break
+					}
+				}
+			}
+		}
+
+		switch actionType {
+		case "switchover":
+			if leaderName == "" {
+				err = fmt.Errorf("leader node not found in cluster state")
+			} else if candidateName == "" {
+				err = fmt.Errorf("no candidate replica node found for switchover")
+			} else {
+				err = m.patroniClient.Switchover(ctx, leaderName, candidateName, leaderHost)
+				msg = fmt.Sprintf("Switchover initiated (Leader: %s [%s] -> Candidate: %s [%s])",
+					leaderName, leaderHost, candidateName, candidateHost)
 			}
 
 		case "failover":
-			if m.detectedEngine == EnginePatroni && m.patroniClient != nil {
-				var candidate string
-				if m.lastStatus != nil {
-					for _, mem := range m.lastStatus.Members {
-						if mem.Role != "leader" {
-							candidate = mem.Name
-							break
-						}
-					}
-				}
-				err = m.patroniClient.Failover(ctx, candidate)
-				msg = fmt.Sprintf("Forced Failover executed for candidate: %s", candidate)
+			if candidateName == "" && len(m.table.SelectedRow()) > 0 {
+				candidateName = m.table.SelectedRow()[0]
 			}
+			err = m.patroniClient.Failover(ctx, candidateName, leaderHost)
+			msg = fmt.Sprintf("Forced Failover executed for candidate: %s", candidateName)
 
 		case "reinit":
-			if m.detectedEngine == EnginePatroni && m.patroniClient != nil {
-				nodeName := m.targetHost
-				if len(m.table.SelectedRow()) > 0 {
-					nodeName = m.table.SelectedRow()[0]
+			targetNode := m.targetHost
+			targetHost := m.targetHost
+			if len(m.table.SelectedRow()) > 0 {
+				targetNode = m.table.SelectedRow()[0]
+				for _, mem := range m.lastStatus.Members {
+					if mem.Name == targetNode {
+						targetHost = mem.Host
+						break
+					}
 				}
-				err = m.patroniClient.Reinitialize(ctx, nodeName)
-				msg = fmt.Sprintf("Reinitialize triggered for node: %s", nodeName)
 			}
+			err = m.patroniClient.Reinitialize(ctx, targetNode, targetHost)
+			msg = fmt.Sprintf("Reinitialize triggered for node: %s [%s]", targetNode, targetHost)
 
 		case "pause":
-			if m.detectedEngine == EnginePatroni && m.patroniClient != nil {
-				paused, e := m.patroniClient.TogglePause(ctx)
-				err = e
-				if paused {
-					msg = "Maintenance mode ENABLED (Paused auto-failover)"
-				} else {
-					msg = "Maintenance mode DISABLED (Resumed auto-failover)"
-				}
+			paused, e := m.patroniClient.TogglePause(ctx, leaderHost)
+			err = e
+			if paused {
+				msg = "Maintenance mode ENABLED (Paused auto-failover)"
+			} else {
+				msg = "Maintenance mode DISABLED (Resumed auto-failover)"
 			}
 		}
 
@@ -605,7 +723,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		entry := LogEntry{
 			Timestamp: time.Now().Format("15:04:05"),
 			Node:      "TUI Console",
-			Component: "Action Trigger",
+			Component: "HA Engine",
 			Level:     "WARN",
 			Message:   msg.message,
 		}
@@ -812,9 +930,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pgPass = m.inputs[2].Placeholder
 				}
 
-				// Формируем эндпоинты для Patroni REST API:
-				// 1. Введённый пользователем адрес
-				// 2. Дополнительно узел на стандартном порту Patroni (8008)
 				httpEndpoints := []string{}
 
 				httpEndpoint := rawEndpoint
