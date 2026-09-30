@@ -82,9 +82,9 @@ go build -o wunschpunsch main.go
   - [x] On-the-fly UI Language Switching (English / Russian) via i18n.
   - [x] Color Scheme Selection (Catppuccin, Nord, Monokai, High Contrast).
   - [x] Configurable Cluster Polling Interval (Default: 2s).
-- [ ] **Data Export & Logging:**
-  - [ ] Local Metrics Snapshot Export (JSON / CSV).
-  - [ ] Event Log Dump & Auto-saving to local file (`~/.wunschpunsch/logs/app.log`).
+- [x] **Data Export & Logging:**
+  - [x] Local Metrics Snapshot Export (JSON / CSV).
+  - [x] Event Log Dump & Auto-saving to local file (`~/.wunschpunsch/logs/app.log`).
   Real-Time Event Logs Improvements
 - [ ] **Sub-tab Filtering inside the Logs Viewport:**
   - [ ] `[All]` — Unified real-time event stream.
@@ -195,9 +195,9 @@ go build -o wunschpunsch main.go
  - [x] Выбор цветовой схемы (Catppuccin, Nord, Monokai, High Contrast).
  - [x] Настройка интервала опрашивания кластера (default: 2s).
 Экспорт данных & Логирование:
- - [ ] Сохранение текущего снимка метрик в JSON / CSV на локальную машину.
- - [ ] Дамп и автосохранение истории событий логов в файл (~/.cluster-tui/logs/app.log).
-- [ ] Вкладки фильтрации (Sub-tabs) внутри Viewport логов:
+ - [x] Сохранение текущего снимка метрик в JSON / CSV на локальную машину.
+ - [x] Дамп и автосохранение истории событий логов в файл (~/.cluster-tui/logs/app.log).
+- [x] Вкладки фильтрации (Sub-tabs) внутри Viewport логов:
  - [ ] [All] — единый поток всех событий.
  - [ ] [HA Engine / Patroni] — события смены ролей, таймлайнов, healthchecks.
  - [ ] [System / Host] — системные предупреждения (высокая загрузка CPU/RAM/Disk).
