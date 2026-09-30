@@ -404,7 +404,8 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			return nil
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		// таймаут на опрос всего кластера (2 секунды)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		var status *patroni.ClusterStatus
@@ -412,34 +413,36 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 
 		if m.patroniClient != nil {
 			st, err := m.patroniClient.GetClusterState(ctx)
-			if err == nil {
+			if err == nil && st != nil {
 				status = st
 			}
 		}
 
+		// Однонодовый режим (Single Node / Standalone PG), если Patroni не ответил
 		if status == nil {
 			metrics := m.pgManager.FetchNodeMetrics(ctx, m.targetHost)
-			if metrics.Error == nil {
-				detected = EngineSingleNode
-				status = &patroni.ClusterStatus{
-					Members: []patroni.Member{
-						{
-							Name:     m.targetHost,
-							Host:     m.targetHost,
-							Role:     "standalone",
-							State:    "running",
-							Timeline: 1,
-							Lag:      0,
-						},
+
+			nodeState := "running"
+			if metrics.Error != nil {
+				nodeState = "UNREACHABLE"
+			}
+
+			detected = EngineSingleNode
+			status = &patroni.ClusterStatus{
+				Members: []patroni.Member{
+					{
+						Name:     m.targetHost,
+						Host:     m.targetHost,
+						Role:     "standalone",
+						State:    nodeState,
+						Timeline: 1,
+						Lag:      0,
 					},
-				}
-			} else {
-				return clusterUpdateMsg{
-					err: fmt.Errorf("unable to connect to PG at %s:%d: %v", m.targetHost, m.targetPort, metrics.Error),
-				}
+				},
 			}
 		}
 
+		// Параллельный опрос метрик PG с таймаутом для каждой ноды
 		metricsMap := make(map[string]postgres.NodeMetrics)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -449,11 +452,14 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			go func(mem patroni.Member) {
 				defer wg.Done()
 
-				nodeHost := mem.Host
-				metrics := m.pgManager.FetchNodeMetrics(ctx, nodeHost)
+				// таймаут 1.5с на каждый узел, чтобы зависший узел не блокировал UI
+				nodeCtx, nodeCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+				defer nodeCancel()
+
+				metrics := m.pgManager.FetchNodeMetrics(nodeCtx, mem.Host)
 
 				mu.Lock()
-				metricsMap[nodeHost] = metrics
+				metricsMap[mem.Host] = metrics
 				mu.Unlock()
 			}(member)
 		}
@@ -851,21 +857,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, member := range msg.status.Members {
 			metrics, hasMetrics := msg.metrics[member.Host]
 
-			connsStr := "N/A"
-			cacheStr := "N/A"
-			if hasMetrics && metrics.Error == nil {
-				connsStr = fmt.Sprintf("%d/%d", metrics.ActiveConnections, metrics.MaxConnections)
-				cacheStr = fmt.Sprintf("%.1f%%", metrics.CacheHitRatio)
+			stateStr := strings.ToUpper(member.State)
+			if stateStr == "" {
+				stateStr = "UNKNOWN"
 			}
 
-			lagMb := fmt.Sprintf("%d", member.Lag/(1024*1024))
+			connsStr := "N/A"
+			cacheStr := "N/A"
+
+			// Проверка сетевого статуса подключения к PG
+			if hasMetrics {
+				if metrics.Error != nil {
+					if stateStr == "RUNNING" {
+						stateStr = "UNREACHABLE (PG)"
+					}
+					connsStr = "DOWN"
+					cacheStr = "DOWN"
+				} else {
+					connsStr = fmt.Sprintf("%d/%d", metrics.ActiveConnections, metrics.MaxConnections)
+					cacheStr = fmt.Sprintf("%.1f%%", metrics.CacheHitRatio)
+				}
+			} else {
+				stateStr = "TIMEOUT"
+			}
+
+			lagMb := "-"
+			if member.Lag >= 0 {
+				lagMb = fmt.Sprintf("%d MB", member.Lag/(1024*1024))
+			}
+
+			tlStr := fmt.Sprintf("%d", member.Timeline)
+			if member.Timeline == 0 {
+				tlStr = "-"
+			}
 
 			rows = append(rows, table.Row{
 				member.Name,
 				member.Host,
 				member.Role,
-				member.State,
-				fmt.Sprintf("%d", member.Timeline),
+				stateStr,
+				tlStr,
 				lagMb,
 				connsStr,
 				cacheStr,
