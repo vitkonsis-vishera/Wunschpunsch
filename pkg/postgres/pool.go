@@ -18,6 +18,8 @@ type NodeMetrics struct {
 	CacheHitRatio     float64
 	PGVersion         string
 	Error             error
+	IdleConnections   int
+	TPS               float64
 }
 
 type Config struct {

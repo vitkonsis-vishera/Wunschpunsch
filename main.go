@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"cluster-tui/pkg/exporter"
 	"cluster-tui/pkg/patroni"
 	"cluster-tui/pkg/postgres"
 
@@ -194,6 +196,11 @@ type actionResultMsg struct {
 	err     error
 }
 
+type exportFinishedMsg struct {
+	filePath string
+	err      error
+}
+
 type tickMsg time.Time
 type clusterUpdateMsg struct {
 	detectedEngine engineType
@@ -230,6 +237,7 @@ type model struct {
 
 	patroniClient *patroni.Client
 	pgManager     *postgres.PGPoolManager
+	logExporter   *exporter.LogExporter
 
 	lastStatus  *patroni.ClusterStatus
 	lastMetrics map[string]postgres.NodeMetrics
@@ -294,6 +302,8 @@ func initialModel() model {
 
 	vp := viewport.New(80, 15)
 
+	logExp, _ := exporter.NewLogExporter()
+
 	return model{
 		tab:              tabConnect,
 		activeLogSubTab:  logSubTabAll,
@@ -307,6 +317,7 @@ func initialModel() model {
 		logs:             []LogEntry{},
 		availableMetrics: defaultMetrics(),
 		settings:         defaultSettings,
+		logExporter:      logExp,
 	}
 }
 
@@ -337,6 +348,51 @@ func parseHostAndPort(rawInput string) (string, int) {
 	}
 
 	return host, port
+}
+
+func (m model) exportMetricsCmd(format string) tea.Cmd {
+	return func() tea.Msg {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return exportFinishedMsg{err: err}
+		}
+		exportDir := filepath.Join(home, ".wunschpunsch", "exports")
+		if err := os.MkdirAll(exportDir, 0755); err != nil {
+			return exportFinishedMsg{err: err}
+		}
+
+		filename := fmt.Sprintf("metrics_%s.%s", time.Now().Format("20060102_150405"), format)
+		fullPath := filepath.Join(exportDir, filename)
+
+		now := time.Now()
+		var snapshots []exporter.MetricsSnapshot
+
+		if len(m.lastMetrics) > 0 {
+			for _, nm := range m.lastMetrics {
+				snapshots = append(snapshots, exporter.MetricsSnapshot{
+					Timestamp:     now,
+					ActiveConns:   nm.ActiveConnections,
+					IdleConns:     nm.IdleConnections,
+					CacheHitRatio: nm.CacheHitRatio,
+					TPS:           nm.TPS,
+				})
+			}
+		} else {
+			snapshots = append(snapshots, exporter.MetricsSnapshot{
+				Timestamp: now,
+			})
+		}
+
+		if format == "json" {
+			if len(snapshots) > 0 {
+				err = exporter.ExportMetricsJSON(fullPath, snapshots[0])
+			}
+		} else if format == "csv" {
+			err = exporter.ExportMetricsCSV(fullPath, snapshots)
+		}
+
+		return exportFinishedMsg{filePath: fullPath, err: err}
+	}
 }
 
 func (m model) fetchClusterDataCmd() tea.Cmd {
@@ -716,6 +772,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logsUpdateMsg:
 		if msg.err == nil && len(msg.logs) > 0 {
 			m.logs = append(m.logs, msg.logs...)
+			if m.logExporter != nil {
+				for _, l := range msg.logs {
+					_ = m.logExporter.AppendLog(fmt.Sprintf("[%s] [%s] [%s] %s", l.Node, l.Component, l.Level, l.Message))
+				}
+			}
 			m.updateLogsViewport()
 		}
 
@@ -732,7 +793,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			entry.Message = fmt.Sprintf("Action failed: %v", msg.err)
 		}
 		m.logs = append(m.logs, entry)
+		if m.logExporter != nil {
+			_ = m.logExporter.AppendLog(fmt.Sprintf("[%s] [%s] [%s] %s", entry.Node, entry.Component, entry.Level, entry.Message))
+		}
 		m.updateLogsViewport()
+
+	case exportFinishedMsg:
+		entry := LogEntry{
+			Timestamp: time.Now().Format("15:04:05"),
+			Node:      "TUI Console",
+			Component: "System",
+			Level:     "INFO",
+			Message:   fmt.Sprintf("Metrics snapshot saved to: %s", msg.filePath),
+		}
+		if msg.err != nil {
+			entry.Level = "ERROR"
+			entry.Message = fmt.Sprintf("Metrics export failed: %v", msg.err)
+		}
+		m.logs = append(m.logs, entry)
+		if m.logExporter != nil {
+			_ = m.logExporter.AppendLog(fmt.Sprintf("[%s] [%s] [%s] %s", entry.Node, entry.Component, entry.Level, entry.Message))
+		}
+		m.updateLogsViewport()
+		return m, nil
 
 	case clusterUpdateMsg:
 		m.connecting = false
@@ -859,6 +942,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.connected {
 			switch msg.String() {
+			case "e":
+				return m, m.exportMetricsCmd("json")
+			case "E":
+				return m, m.exportMetricsCmd("csv")
 			case "tab", "l", "right":
 				if m.tab > tabConnect && m.tab != tabSettings {
 					m.tab = (m.tab % 5) + 1
@@ -1316,15 +1403,15 @@ func (m model) View() string {
 		}
 	}
 
-	footerHint := "Tab/Arrow: Move / Switch Tab  •  Ctrl+C: Quit"
+	footerHint := "Tab/Arrow: Move / Switch Tab  •  e/E: Export JSON/CSV  •  Ctrl+C: Quit"
 	if m.tab == tabEngineStats {
 		if m.showMetricsConfig {
 			footerHint = "Up/Down: Navigate  •  Space: Toggle Metric  •  Esc/Ctrl+D: Save"
 		} else {
-			footerHint = "Ctrl+D: Metrics Settings  •  Tab: Switch Tab  •  Ctrl+C: Quit"
+			footerHint = "Ctrl+D: Metrics Settings  •  e/E: Export JSON/CSV  •  Tab: Switch Tab  •  Ctrl+C: Quit"
 		}
 	} else if m.tab == tabLogs {
-		footerHint = "[ / ] or Left/Right: Switch Log Filter  •  Up/Down: Scroll  •  Esc/q: Back  •  Ctrl+C: Quit"
+		footerHint = "[ / ] or Left/Right: Switch Log Filter  •  Up/Down: Scroll  •  e/E: Export JSON/CSV  •  Esc/q: Back  •  Ctrl+C: Quit"
 	} else if m.tab == tabSettings {
 		footerHint = "Up/Down: Navigate  •  Left/Right/Space: Change Option  •  Esc/q: Back  •  Ctrl+C: Quit"
 	}
