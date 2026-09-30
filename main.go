@@ -243,7 +243,10 @@ type model struct {
 	lastMetrics map[string]postgres.NodeMetrics
 	lastError   error
 
-	logs []LogEntry
+	showModal  bool
+	modalMsg   string
+	modalIsErr bool
+	logs       []LogEntry
 }
 
 func initialModel() model {
@@ -806,10 +809,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Level:     "INFO",
 			Message:   fmt.Sprintf("Metrics snapshot saved to: %s", msg.filePath),
 		}
+
 		if msg.err != nil {
 			entry.Level = "ERROR"
 			entry.Message = fmt.Sprintf("Metrics export failed: %v", msg.err)
+			m.modalMsg = msg.err.Error()
+			m.modalIsErr = true
+		} else {
+			m.modalMsg = msg.filePath
+			m.modalIsErr = false
 		}
+
+		m.showModal = true
+
 		m.logs = append(m.logs, entry)
 		if m.logExporter != nil {
 			_ = m.logExporter.AppendLog(fmt.Sprintf("[%s] [%s] [%s] %s", entry.Node, entry.Component, entry.Level, entry.Message))
@@ -877,6 +889,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case " ", "enter":
 				m.availableMetrics[m.metricsCursor].Enabled = !m.availableMetrics[m.metricsCursor].Enabled
+			}
+			return m, nil
+		}
+
+		if m.showModal {
+			switch msg.String() {
+			case "enter", "esc", "space", "q":
+				m.showModal = false
+				return m, nil
 			}
 			return m, nil
 		}
@@ -1116,6 +1137,68 @@ func (m *model) applyTheme(t themeType) {
 	boxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primaryColor).Padding(1)
 }
 
+func (m model) renderModalView() string {
+	var icon, title string
+	var borderCol lipgloss.Color
+	var btnStyle lipgloss.Style
+
+	if m.modalIsErr {
+		borderCol = dangerColor
+		icon = lipgloss.NewStyle().Foreground(dangerColor).Bold(true).Render(`
+ ███████╗██████╗ ██╗██╗
+ ██╔════╝██╔══██╗██║██║
+ █████╗  ██████╔╝██║██║
+ ██╔══╝  ██╔══██╗██║██║
+ ██║     ██║  ██║██║███████╗
+ ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝`)
+		title = lipgloss.NewStyle().Bold(true).Foreground(dangerColor).Render("Ошибка экспорта метрик")
+		btnStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(dangerColor)
+	} else {
+		borderCol = successColor
+		// Крупный стильный ASCII Art "OK"
+		icon = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render(`
+ ██████╗ ██╗  ██╗
+██╔═══██╗██║ ██╔╝
+██║   ██║█████═╝ 
+██║   ██║██╔═██╗ 
+╚██████╔╝██║  ██╗
+ ╚═════╝ ╚═╝  ╚═╝`)
+		title = lipgloss.NewStyle().Bold(true).Foreground(successColor).Render("Метрики успешно экспортированы!")
+		btnStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(successColor)
+	}
+
+	pathLabel := lipgloss.NewStyle().Foreground(subtleColor).Render("Файл сохранен по пути:")
+	pathValue := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(m.modalMsg)
+	okButton := btnStyle.Padding(0, 3).Render(" [ OK ] (Enter) ")
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		icon,
+		"",
+		title,
+		"",
+		pathLabel,
+		pathValue,
+		"\n",
+		okButton,
+	)
+
+	modalBox := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(borderCol).
+		Padding(1, 5).
+		Align(lipgloss.Center).
+		Render(content)
+
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modalBox,
+	)
+}
+
 func (m model) renderSettingsView() string {
 	var lines []string
 	isRU := m.settings.Language == LangRU
@@ -1226,6 +1309,10 @@ func (m *model) updateInputs(msg tea.Msg) tea.Cmd {
 func (m model) View() string {
 	if m.width == 0 {
 		return "Initializing TUI..."
+	}
+
+	if m.showModal {
+		return m.renderModalView()
 	}
 
 	containerWidth := m.width - 4
