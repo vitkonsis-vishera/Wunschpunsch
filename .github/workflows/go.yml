@@ -66,7 +66,7 @@ jobs:
           name: wunschpunsch-linux-amd64
           path: wunschpunsch
 
-release:
+  release:
     name: Build & Publish Release Assets
     needs: test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
