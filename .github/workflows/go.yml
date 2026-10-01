@@ -74,6 +74,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -96,6 +98,19 @@ jobs:
           # macOS ARM64 (Apple Silicon)
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o wunschpunsch-darwin-arm64 .
 
+      - name: Pack Source Code Archives
+        run: |
+          git archive --format=tar.gz -o wunschpunsch-source.tar.gz HEAD
+          git archive --format=zip -o wunschpunsch-source.zip HEAD
+
+      - name: Update 'latest' Git Tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest ${{ github.sha }}
+          git push origin refs/tags/latest --force
+
       - name: Upload Binaries to Release
         uses: softprops/action-gh-release@v2
         with:
@@ -107,6 +122,8 @@ jobs:
             wunschpunsch-linux-amd64
             wunschpunsch-windows-amd64.exe
             wunschpunsch-darwin-arm64
+            wunschpunsch-source.tar.gz
+            wunschpunsch-source.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
