@@ -247,6 +247,12 @@ type model struct {
 	modalMsg   string
 	modalIsErr bool
 	logs       []LogEntry
+
+	showNodeMenu    bool
+	selectedNode    string
+	dcsConfigText   string
+	showDCSModal    bool
+	actionStatusMsg string
 }
 
 func initialModel() model {
@@ -322,6 +328,66 @@ func initialModel() model {
 		settings:         defaultSettings,
 		logExporter:      logExp,
 	}
+}
+
+func (m model) updateTopologyKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		// При нажатии Enter на строке таблицы открываем диалог управления выбранной нодой
+		if len(m.table.Rows()) > 0 {
+			selectedRow := m.table.SelectedRow()
+			if len(selectedRow) > 0 {
+				m.selectedNode = selectedRow[0] // Имя ноды из 1-й колонки
+				m.showNodeMenu = true
+			}
+		}
+	case "c":
+		// Горячая клавиша "c" — показать DCS Конфиг
+		m.showDCSModal = true
+		return m, m.fetchDCSConfigCmd()
+	case "esc":
+		m.showNodeMenu = false
+		m.showDCSModal = false
+	}
+	return m, nil
+}
+
+// 3. Команды для асинхронного выполнения действий над Patroni
+func (m model) fetchDCSConfigCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.patroniClient == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		cfg, err := m.patroniClient.GetDCSConfig(ctx)
+		if err != nil {
+			return dcsLoadedMsg{err: err}
+		}
+		return dcsLoadedMsg{config: cfg}
+	}
+}
+
+func (m model) restartNodeCmd(nodeName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		err := m.patroniClient.RestartNode(ctx, nodeName)
+		return nodeActionResultMsg{action: "Restart", node: nodeName, err: err}
+	}
+}
+
+type dcsLoadedMsg struct {
+	config string
+	err    error
+}
+
+type nodeActionResultMsg struct {
+	action string
+	node   string
+	err    error
 }
 
 func (m model) Init() tea.Cmd {
@@ -1166,6 +1232,47 @@ func (m *model) applyTheme(t themeType) {
 	statusLineStyle = lipgloss.NewStyle().Foreground(subtleColor).Padding(0, 1)
 	activeTabStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(secondaryColor).Padding(0, 2)
 	boxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(primaryColor).Padding(1)
+}
+
+func (m model) renderNodeMenuModal() string {
+	if !m.showNodeMenu {
+		return ""
+	}
+
+	content := fmt.Sprintf(
+		"🔧  Управление узлом: %s\n\n"+
+			" [R] 🔄 Перезапустить узел (Restart)\n"+
+			" [L] 📑 Перезагрузить конфиг (Reload)\n"+
+			" [Esc] ❌ Отмена",
+		m.selectedNode,
+	)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 3).
+		Align(lipgloss.Center).
+		Render(content)
+}
+
+func (m model) renderDCSModal() string {
+	if !m.showDCSModal {
+		return ""
+	}
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("⚙️  Patroni Dynamic Configuration (DCS)\n\n")
+
+	body := m.dcsConfigText
+	if body == "" {
+		body = "Загрузка конфигурации..."
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color("212")).
+		Padding(1, 2).
+		Width(70).
+		Render(title + body + "\n\n[Esc] Закрыть")
 }
 
 func (m model) renderModalView() string {
