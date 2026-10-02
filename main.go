@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"os"
@@ -126,6 +127,7 @@ const (
 	tabConnect activeTab = iota
 	tabTopology
 	tabEngineStats
+	tabAnalytics
 	tabActions
 	tabLogs
 	tabSettings
@@ -139,6 +141,21 @@ const (
 	logSubTabHA
 	logSubTabSystem
 )
+
+type ActionsModel struct {
+	items         []ActionItem
+	selectedIndex int
+	showModal     bool
+	executing     bool
+	lastResult    string
+	lastErr       error
+}
+
+func NewActionsModel() ActionsModel {
+	return ActionsModel{
+		items: GetDefaultActions(),
+	}
+}
 
 func (l logSubTab) String() string {
 	switch l {
@@ -253,6 +270,250 @@ type model struct {
 	dcsConfigText   string
 	showDCSModal    bool
 	actionStatusMsg string
+
+	// Поля для аналитики и блокировок
+	topQueries   []postgres.QueryStat
+	activeLocks  []postgres.LockInfo
+	selectedPID  int    // Выбранный PID из таблицы блокировок
+	analyticsErr string // Ошибка загрузки аналитики, если есть
+	statusMsg    string // Сообщение о статусе выполнения действий над процессами
+
+	actionsSelectedIndex  int
+	showConfirmationModal bool
+}
+
+type topQueriesLoadedMsg struct {
+	stats []postgres.QueryStat
+	err   error
+}
+
+type locksLoadedMsg struct {
+	locks []postgres.LockInfo
+	err   error
+}
+
+type terminateResultMsg struct {
+	pid   int
+	force bool
+	err   error
+}
+
+type dcsLoadedMsg struct {
+	config string
+	err    error
+}
+
+type nodeActionResultMsg struct {
+	action string
+	node   string
+	err    error
+}
+
+// Загрузка топа тяжелых запросов
+func (m model) fetchTopQueriesCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return topQueriesLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		stats, err := m.pgManager.GetTopQueries(ctx, host)
+		return topQueriesLoadedMsg{stats: stats, err: err}
+	}
+}
+
+// Загрузка списка активных блокировок/зависших сессий
+func (m model) fetchActiveLocksCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return locksLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		locks, err := m.pgManager.GetActiveLocks(ctx, host)
+		return locksLoadedMsg{locks: locks, err: err}
+	}
+}
+
+// Завершение процесса (pg_cancel_backend или pg_terminate_backend)
+func (m model) terminateBackendCmd(host string, pid int, force bool) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return terminateResultMsg{pid: pid, force: force, err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		err := m.pgManager.TerminateBackend(ctx, host, pid, force)
+		return terminateResultMsg{pid: pid, force: force, err: err}
+	}
+}
+
+func (m model) renderAnalyticsTab() string {
+	s := strings.Builder{}
+
+	if m.statusMsg != "" {
+		s.WriteString(lipgloss.NewStyle().Foreground(warningColor).Render(m.statusMsg + "\n\n"))
+	}
+
+	if m.analyticsErr != "" {
+		s.WriteString(lipgloss.NewStyle().Foreground(dangerColor).Render("⚠️  " + m.analyticsErr + "\n\n"))
+	}
+
+	// Вкладка 1: Топ тяжелых запросов
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("🔥 Top Slow Queries (pg_stat_statements)\n\n"))
+
+	if len(m.topQueries) == 0 {
+		s.WriteString(" Запросы не найдены или расширение pg_stat_statements не активировано.\n\n")
+	} else {
+		s.WriteString(fmt.Sprintf("%-60s | %-10s | %-12s | %-10s\n", "Query", "Calls", "Total Time", "Mean Time"))
+		s.WriteString(strings.Repeat("-", 100) + "\n")
+		for _, q := range m.topQueries {
+			queryText := q.Query
+			if len(queryText) > 58 {
+				queryText = queryText[:55] + "..."
+			}
+			s.WriteString(fmt.Sprintf("%-60s | %-10d | %-10.2fms | %-8.2fms\n",
+				queryText, q.Calls, q.TotalTime, q.MeanTime))
+		}
+		s.WriteString("\n")
+	}
+
+	// Вкладка 2: Активные блокировки и зависшие транзакции
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("🔒 Active Locks & Hung Transactions (> 2s)\n\n"))
+
+	if len(m.activeLocks) == 0 {
+		s.WriteString(" 🟢 Нет зависших транзакций и блокировок.\n\n")
+	} else {
+		s.WriteString(fmt.Sprintf("%-8s | %-12s | %-10s | %-10s | %-40s\n", "PID", "User", "State", "Duration", "Query"))
+		s.WriteString(strings.Repeat("-", 95) + "\n")
+		for _, l := range m.activeLocks {
+			prefix := "  "
+			if l.PID == m.selectedPID {
+				prefix = "👉" // Подсветка выбранной строки для отмены
+			}
+			qText := l.Query
+			if len(qText) > 38 {
+				qText = qText[:35] + "..."
+			}
+			s.WriteString(fmt.Sprintf("%s %-6d | %-12s | %-10s | %-8.1fs | %-40s\n",
+				prefix, l.PID, l.User, l.State, l.DurationSec, qText))
+		}
+		s.WriteString("\n")
+		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(
+			"Подсказка: [k] Мягкая отмена (pg_cancel_backend) | [K] Принудительное завершение (pg_terminate_backend) | [r] Обновить",
+		))
+	}
+
+	return s.String()
+}
+
+func (m *model) renderActionsView() string {
+	var s strings.Builder
+
+	// 1. Секция DBA-обслуживания (Доступна ВСЕГДА)
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("🔧 Maintenance & DBA Operations\n\n"))
+
+	for i, action := range GetDefaultActions() {
+		cursor := " "
+		if i == m.actionsSelectedIndex {
+			cursor = ">"
+		}
+		riskBadge := fmt.Sprintf("[%s]", action.Risk)
+		s.WriteString(fmt.Sprintf(" %s %d. %-28s %-10s %s\n",
+			cursor, i+1, action.Name, riskBadge, action.Description))
+	}
+
+	// 2. Секция управления HA-кластером (в зависимости от движка)
+	switch m.detectedEngine {
+	case EnginePatroni:
+		s.WriteString("\n" + strings.Repeat("-", 60) + "\n\n")
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(dangerColor).Render("⚡ Cluster Management Actions (Patroni / HA)\n\n"))
+		s.WriteString("  [S] Switchover (Graceful Leader Transfer)\n")
+		s.WriteString("  [F] Failover (Force Leader Selection)\n")
+		s.WriteString("  [R] Reinitialize Replica\n")
+		s.WriteString("  [P] Pause/Resume Auto-failover (Maintenance Mode)\n")
+
+	case EnginePacemaker:
+		s.WriteString("\n" + strings.Repeat("-", 60) + "\n\n")
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render("⚡ Cluster Management Actions (Corosync / Pacemaker)\n\n"))
+		s.WriteString("  [M] Move Resource (pcs resource move)\n")
+		s.WriteString("  [C] Cleanup Resource (pcs resource cleanup)\n")
+		s.WriteString("  [S] Standby Node (pcs node standby)\n")
+	}
+
+	return s.String()
+}
+
+func (m *model) renderStandaloneActions() string {
+	var s string
+	s += "  🔧 Maintenance & DBA Operations (Single Node)\n\n"
+
+	for i, action := range GetDefaultActions() {
+		cursor := " "
+		if i == m.actionsSelectedIndex {
+			cursor = ">"
+		}
+
+		riskBadge := fmt.Sprintf("[%s]", action.Risk)
+		s += fmt.Sprintf(" %s %d. %-28s %-10s %s\n",
+			cursor, i+1, action.Name, riskBadge, action.Description)
+	}
+
+	return s
+}
+
+func (m *model) renderClusterActions() string {
+	s := "  ⚡ Cluster Management Actions (Patroni / HA)\n\n"
+	s += "  [S] Switchover (Graceful Leader Transfer)\n"
+	s += "  [F] Failover (Force Leader Selection)\n"
+	s += "  [R] Reinitialize Replica\n"
+	s += "  [P] Pause/Resume Auto-failover (Maintenance Mode)\n"
+	return s
+}
+
+// Команда асинхронного выполнения DBA действия над БД
+func (m model) executeDBActionCmd(action ActionItem) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return actionResultMsg{err: fmt.Errorf("PGPoolManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		db, err := m.pgManager.GetDB(m.targetHost)
+		if err != nil {
+			return actionResultMsg{err: fmt.Errorf("ошибка соединения с %s: %w", m.targetHost, err)}
+		}
+
+		res, err := ExecuteAction(ctx, db, action)
+		return actionResultMsg{message: res, err: err}
+	}
+}
+
+func (m *model) renderModal() string {
+	actions := GetDefaultActions()
+	if m.actionsSelectedIndex < 0 || m.actionsSelectedIndex >= len(actions) {
+		return ""
+	}
+	action := actions[m.actionsSelectedIndex]
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render("⚠️  ПОДТВЕРЖДЕНИЕ ОПЕРАЦИИ DBA")
+	info := fmt.Sprintf("Действие: %s\nЗапрос:    %s\nРиск:      [%s]\n\n%s",
+		action.Name, action.Query, action.Risk, action.Description)
+
+	buttons := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("[Y / Enter] Да, выполнить   •   [N / Esc] Отмена")
+
+	modalContent := lipgloss.JoinVertical(lipgloss.Center, title, "\n", info, "\n\n", buttons)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(warningColor).
+		Padding(1, 4).
+		Align(lipgloss.Center).
+		Render(modalContent)
 }
 
 func initialModel() model {
@@ -330,29 +591,7 @@ func initialModel() model {
 	}
 }
 
-func (m model) updateTopologyKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		// При нажатии Enter на строке таблицы открываем диалог управления выбранной нодой
-		if len(m.table.Rows()) > 0 {
-			selectedRow := m.table.SelectedRow()
-			if len(selectedRow) > 0 {
-				m.selectedNode = selectedRow[0] // Имя ноды из 1-й колонки
-				m.showNodeMenu = true
-			}
-		}
-	case "c":
-		// Горячая клавиша "c" — показать DCS Конфиг
-		m.showDCSModal = true
-		return m, m.fetchDCSConfigCmd()
-	case "esc":
-		m.showNodeMenu = false
-		m.showDCSModal = false
-	}
-	return m, nil
-}
-
-// 3. Команды для асинхронного выполнения действий над Patroni
+// Команды для асинхронного выполнения действий над Patroni
 func (m model) fetchDCSConfigCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.patroniClient == nil {
@@ -379,15 +618,44 @@ func (m model) restartNodeCmd(nodeName string) tea.Cmd {
 	}
 }
 
-type dcsLoadedMsg struct {
-	config string
-	err    error
-}
+func (m *ActionsModel) HandleKey(key string, db *sql.DB) {
+	if m.showModal {
+		switch key {
+		case "y", "Y", "enter":
+			m.showModal = false
+			m.executing = true
 
-type nodeActionResultMsg struct {
-	action string
-	node   string
-	err    error
+			selected := m.items[m.selectedIndex]
+			go func() {
+				res, err := ExecuteAction(context.Background(), db, selected)
+				m.executing = false
+				if err != nil {
+					m.lastErr = err
+					m.lastResult = ""
+				} else {
+					m.lastResult = res
+					m.lastErr = nil
+				}
+			}()
+
+		case "n", "N", "esc":
+			m.showModal = false
+		}
+		return
+	}
+
+	switch key {
+	case "up", "k":
+		if m.selectedIndex > 0 {
+			m.selectedIndex--
+		}
+	case "down", "j":
+		if m.selectedIndex < len(m.items)-1 {
+			m.selectedIndex++
+		}
+	case "enter":
+		m.showModal = true
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -470,7 +738,6 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			return nil
 		}
 
-		// таймаут на опрос всего кластера (2 секунды)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -484,7 +751,6 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			}
 		}
 
-		// Однонодовый режим (Single Node / Standalone PG), если Patroni не ответил
 		if status == nil {
 			metrics := m.pgManager.FetchNodeMetrics(ctx, m.targetHost)
 
@@ -508,7 +774,6 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			}
 		}
 
-		// Параллельный опрос метрик PG с таймаутом для каждой ноды
 		metricsMap := make(map[string]postgres.NodeMetrics)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -518,7 +783,6 @@ func (m model) fetchClusterDataCmd() tea.Cmd {
 			go func(mem patroni.Member) {
 				defer wg.Done()
 
-				// таймаут 1.5с на каждый узел, чтобы зависший узел не блокировал UI
 				nodeCtx, nodeCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 				defer nodeCancel()
 
@@ -836,12 +1100,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logsViewport.Height = vpHeight
 
 	case tickMsg:
-		if m.connected {
+		// Фоновый опрос и авто-реконнект
+		if m.connected || m.pgManager != nil {
 			cmds := []tea.Cmd{m.fetchClusterDataCmd(), tickCmd(m.settings.PollIntervalSec)}
-			if m.tab == tabLogs {
-				cmds = append(cmds, m.fetchLogsCmd())
+			if m.connected {
+				if m.tab == tabLogs {
+					cmds = append(cmds, m.fetchLogsCmd())
+				}
+				if m.tab == tabAnalytics {
+					cmds = append(cmds, m.fetchTopQueriesCmd(m.targetHost), m.fetchActiveLocksCmd(m.targetHost))
+				}
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+	case dcsLoadedMsg:
+		if msg.err != nil {
+			m.dcsConfigText = fmt.Sprintf("Ошибка загрузки DCS: %v", msg.err)
+		} else {
+			m.dcsConfigText = msg.config
+		}
+
+	case nodeActionResultMsg:
+		if msg.err != nil {
+			m.actionStatusMsg = fmt.Sprintf("❌ Ошибка %s для %s: %v", msg.action, msg.node, msg.err)
+		} else {
+			m.actionStatusMsg = fmt.Sprintf("✅ %s успешно выполнен для %s", msg.action, msg.node)
+			m.showNodeMenu = false
+		}
+
+	case topQueriesLoadedMsg:
+		if msg.err != nil {
+			m.analyticsErr = fmt.Sprintf("Ошибка pg_stat_statements: %v", msg.err)
+		} else {
+			m.topQueries = msg.stats
+		}
+
+	case locksLoadedMsg:
+		if msg.err != nil {
+			m.analyticsErr = fmt.Sprintf("Ошибка получения блокировок: %v", msg.err)
+		} else {
+			m.activeLocks = msg.locks
+			if len(m.activeLocks) > 0 {
+				m.selectedPID = m.activeLocks[0].PID
+			} else {
+				m.selectedPID = 0
+			}
+		}
+
+	case terminateResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("❌ Ошибка завершения PID %d: %v", msg.pid, msg.err)
+		} else {
+			action := "остановлен (cancel)"
+			if msg.force {
+				action = "убит (terminate)"
+			}
+			m.statusMsg = fmt.Sprintf("✅ Процесс %d успешно %s", msg.pid, action)
+			return m, m.fetchActiveLocksCmd(m.targetHost)
 		}
 
 	case logsUpdateMsg:
@@ -931,7 +1247,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			connsStr := "N/A"
 			cacheStr := "N/A"
 
-			// Проверка сетевого статуса подключения к PG
 			if hasMetrics {
 				if metrics.Error != nil {
 					if stateStr == "RUNNING" {
@@ -971,6 +1286,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.SetRows(rows)
 
 	case tea.KeyMsg:
+		if m.showConfirmationModal {
+			switch strings.ToLower(msg.String()) {
+			case "y", "enter":
+				m.showConfirmationModal = false
+				actions := GetDefaultActions()
+				if m.actionsSelectedIndex >= 0 && m.actionsSelectedIndex < len(actions) {
+					selectedAction := actions[m.actionsSelectedIndex]
+					return m, m.executeDBActionCmd(selectedAction)
+				}
+			case "n", "esc":
+				m.showConfirmationModal = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		if m.showNodeMenu {
+			switch strings.ToLower(msg.String()) {
+			case "r":
+				return m, m.restartNodeCmd(m.selectedNode)
+			case "esc":
+				m.showNodeMenu = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		if m.showDCSModal {
+			if msg.String() == "esc" {
+				m.showDCSModal = false
+				return m, nil
+			}
+			return m, nil
+		}
+
 		if m.showMetricsConfig {
 			switch msg.String() {
 			case "esc", "ctrl+d", "q":
@@ -997,6 +1347,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, nil
+		}
+
+		if msg.String() == "ctrl+c" {
+			if m.pgManager != nil {
+				m.pgManager.Close()
+			}
+			return m, tea.Quit
+		}
+
+		if msg.String() == "q" || msg.String() == "esc" {
+			if m.tab == tabLogs || m.tab == tabSettings || m.tab == tabAnalytics {
+				m.tab = tabTopology
+				return m, nil
+			}
+			if m.tab != tabConnect {
+				if m.pgManager != nil {
+					m.pgManager.Close()
+				}
+				return m, tea.Quit
+			}
 		}
 
 		if m.tab == tabSettings {
@@ -1038,23 +1408,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if msg.String() == "ctrl+c" {
-			if m.pgManager != nil {
-				m.pgManager.Close()
+		if m.tab == tabTopology && m.connected {
+			switch msg.String() {
+			case "enter":
+				if len(m.table.Rows()) > 0 {
+					selectedRow := m.table.SelectedRow()
+					if len(selectedRow) > 0 {
+						m.selectedNode = selectedRow[0]
+						m.showNodeMenu = true
+					}
+				}
+			case "c":
+				m.showDCSModal = true
+				return m, m.fetchDCSConfigCmd()
 			}
-			return m, tea.Quit
 		}
 
-		if msg.String() == "q" || msg.String() == "esc" {
-			if m.tab == tabLogs || m.tab == tabSettings {
-				m.tab = tabTopology
-				return m, nil
-			}
-			if m.tab != tabConnect {
-				if m.pgManager != nil {
-					m.pgManager.Close()
+		if m.tab == tabAnalytics && m.connected {
+			switch msg.String() {
+			case "k":
+				if m.selectedPID > 0 {
+					m.statusMsg = fmt.Sprintf("Отправка pg_cancel_backend(%d)...", m.selectedPID)
+					return m, m.terminateBackendCmd(m.targetHost, m.selectedPID, false)
 				}
-				return m, tea.Quit
+			case "K":
+				if m.selectedPID > 0 {
+					m.statusMsg = fmt.Sprintf("Принудительное завершение pg_terminate_backend(%d)...", m.selectedPID)
+					return m, m.terminateBackendCmd(m.targetHost, m.selectedPID, true)
+				}
+			case "r":
+				return m, tea.Batch(
+					m.fetchTopQueriesCmd(m.targetHost),
+					m.fetchActiveLocksCmd(m.targetHost),
+				)
+			case "up":
+				if len(m.activeLocks) > 0 {
+					for i, l := range m.activeLocks {
+						if l.PID == m.selectedPID && i > 0 {
+							m.selectedPID = m.activeLocks[i-1].PID
+							break
+						}
+					}
+				}
+			case "down":
+				if len(m.activeLocks) > 0 {
+					for i, l := range m.activeLocks {
+						if l.PID == m.selectedPID && i < len(m.activeLocks)-1 {
+							m.selectedPID = m.activeLocks[i+1].PID
+							break
+						}
+					}
+				}
 			}
 		}
 
@@ -1066,36 +1470,72 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.exportMetricsCmd("csv")
 			case "tab", "l", "right":
 				if m.tab > tabConnect && m.tab != tabSettings {
-					m.tab = (m.tab % 5) + 1
+					m.tab = (m.tab % 6) + 1
+					if m.tab == tabAnalytics {
+						return m, tea.Batch(
+							m.fetchTopQueriesCmd(m.targetHost),
+							m.fetchActiveLocksCmd(m.targetHost),
+						)
+					}
 				}
 			case "shift+tab", "h", "left":
 				if m.tab > tabConnect && m.tab != tabSettings {
-					m.tab = (m.tab-2+5)%5 + 1
+					m.tab = (m.tab-2+6)%6 + 1
+					if m.tab == tabAnalytics {
+						return m, tea.Batch(
+							m.fetchTopQueriesCmd(m.targetHost),
+							m.fetchActiveLocksCmd(m.targetHost),
+						)
+					}
 				}
 			case "1":
 				m.tab = tabTopology
 			case "2":
 				m.tab = tabEngineStats
 			case "3":
-				m.tab = tabActions
+				m.tab = tabAnalytics
+				return m, tea.Batch(
+					m.fetchTopQueriesCmd(m.targetHost),
+					m.fetchActiveLocksCmd(m.targetHost),
+				)
 			case "4":
+				m.tab = tabActions
+			case "5":
 				m.tab = tabLogs
 				return m, m.fetchLogsCmd()
-			case "5":
+			case "6":
 				m.tab = tabSettings
 			}
 		}
 
-		if m.tab == tabActions && m.connected && m.detectedEngine != EngineSingleNode {
-			switch strings.ToLower(msg.String()) {
-			case "s":
-				return m, m.executeActionCmd("switchover")
-			case "f":
-				return m, m.executeActionCmd("failover")
-			case "r":
-				return m, m.executeActionCmd("reinit")
-			case "p":
-				return m, m.executeActionCmd("pause")
+		if m.tab == tabActions && m.connected {
+			// Навигация и запуск DBA-действий (Up / Down / Enter)
+			switch msg.String() {
+			case "up", "k":
+				if m.actionsSelectedIndex > 0 {
+					m.actionsSelectedIndex--
+				}
+			case "down", "j":
+				actions := GetDefaultActions()
+				if m.actionsSelectedIndex < len(actions)-1 {
+					m.actionsSelectedIndex++
+				}
+			case "enter":
+				m.showConfirmationModal = true
+			}
+
+			// HA-действия только для Patroni
+			if m.detectedEngine == EnginePatroni {
+				switch strings.ToLower(msg.String()) {
+				case "s":
+					return m, m.executeActionCmd("switchover")
+				case "f":
+					return m, m.executeActionCmd("failover")
+				case "r":
+					return m, m.executeActionCmd("reinit")
+				case "p":
+					return m, m.executeActionCmd("pause")
+				}
 			}
 		}
 
@@ -1181,6 +1621,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m model) tr(ruStr, enStr string) string {
+	if m.settings.Language == LangEN {
+		return enStr
+	}
+	return ruStr
+}
+
 func (m *model) adjustSetting(delta int) {
 	switch m.settingsCursor {
 	case 0:
@@ -1242,7 +1689,6 @@ func (m model) renderNodeMenuModal() string {
 	content := fmt.Sprintf(
 		"🔧  Управление узлом: %s\n\n"+
 			" [R] 🔄 Перезапустить узел (Restart)\n"+
-			" [L] 📑 Перезагрузить конфиг (Reload)\n"+
 			" [Esc] ❌ Отмена",
 		m.selectedNode,
 	)
@@ -1293,7 +1739,6 @@ func (m model) renderModalView() string {
 		btnStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#11111B")).Background(dangerColor)
 	} else {
 		borderCol = successColor
-		// Крупный стильный ASCII Art "OK"
 		icon = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render(`
  ██████╗ ██╗  ██╗
 ██╔═══██╗██║ ██╔╝
@@ -1449,8 +1894,20 @@ func (m model) View() string {
 		return "Initializing TUI..."
 	}
 
+	if m.showConfirmationModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderModal())
+	}
+
 	if m.showModal {
 		return m.renderModalView()
+	}
+
+	if m.showNodeMenu {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderNodeMenuModal())
+	}
+
+	if m.showDCSModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderDCSModal())
 	}
 
 	containerWidth := m.width - 4
@@ -1462,7 +1919,7 @@ func (m model) View() string {
 		lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Engine: "+m.detectedEngine.String()) +
 		statusLineStyle.Render(" | Target: "+m.pgFlavor)
 
-	tabs := []string{"0: Connect", "1: Topology", "2: Metrics", "3: Actions", "4: Event Logs", "5: Settings"}
+	tabs := []string{"0: Connect", "1: Topology", "2: Metrics", "3: Analytics", "4: Actions", "5: Event Logs", "6: Settings"}
 	var renderedTabs []string
 	for i, t := range tabs {
 		if activeTab(i) == m.tab {
@@ -1562,31 +2019,11 @@ func (m model) View() string {
 				)
 			}
 
+		case tabAnalytics:
+			body = currentBoxStyle.Render(m.renderAnalyticsTab())
+
 		case tabActions:
-			if m.detectedEngine == EngineSingleNode {
-				body = currentBoxStyle.Render(
-					lipgloss.JoinVertical(
-						lipgloss.Left,
-						lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render("Cluster Management Actions Disabled"),
-						"\n",
-						lipgloss.NewStyle().Foreground(subtleColor).Render(
-							"HA operations (Switchover, Failover, Reinitialization) are unavailable for Single-Node / Standalone PostgreSQL instances.",
-						),
-					),
-				)
-			} else {
-				body = currentBoxStyle.Render(
-					lipgloss.JoinVertical(
-						lipgloss.Left,
-						lipgloss.NewStyle().Bold(true).Foreground(dangerColor).Render("Cluster Management Actions"),
-						"\n",
-						"[S] Switchover (Graceful Leader Transfer)",
-						"[F] Failover (Force Leader Selection)",
-						"[R] Reinitialize Replica",
-						"[P] Pause/Resume Auto-failover (Maintenance Mode)",
-					),
-				)
-			}
+			body = currentBoxStyle.Render(m.renderActionsView())
 
 		case tabLogs:
 			subTabs := []logSubTab{logSubTabAll, logSubTabPostgres, logSubTabHA, logSubTabSystem}
@@ -1635,6 +2072,8 @@ func (m model) View() string {
 		} else {
 			footerHint = "Ctrl+D: Metrics Settings  •  e/E: Export JSON/CSV  •  Tab: Switch Tab  •  Ctrl+C: Quit"
 		}
+	} else if m.tab == tabAnalytics {
+		footerHint = "Up/Down: Выбор PID  •  k: Cancel Backend  •  K: Terminate Backend  •  r: Обновить  •  Tab: Switch Tab"
 	} else if m.tab == tabLogs {
 		footerHint = "[ / ] or Left/Right: Switch Log Filter  •  Up/Down: Scroll  •  e/E: Export JSON/CSV  •  Esc/q: Back  •  Ctrl+C: Quit"
 	} else if m.tab == tabSettings {
