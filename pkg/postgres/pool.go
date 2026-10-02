@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 type NodeMetrics struct {
@@ -84,6 +86,15 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 
 	m.pools[host] = newPool
 	return newPool, nil
+}
+
+// GetDB возвращает стандартное подключение *sql.DB для указанного хоста (через адаптер pgx/v5/stdlib)
+func (m *PGPoolManager) GetDB(host string) (*sql.DB, error) {
+	pool, err := m.GetOrCreatePool(context.Background(), host)
+	if err != nil {
+		return nil, err
+	}
+	return stdlib.OpenDBFromPool(pool), nil
 }
 
 // FetchNodeMetrics собирает системные метрики с указанного узла PG
