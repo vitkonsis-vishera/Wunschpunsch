@@ -90,6 +90,7 @@ go build -o wunschpunsch main.go
   - [x] `[Postgres]` — Database-specific metrics, warnings, and errors.
   - [x] `[HA Engine / Patroni]` — Role switches, timeline changes, and failover health checks.
   - [x] `[System / Host]` — System alerts (high CPU/RAM/Disk utilization).
+  - [x] [SSH / Journal] — Dedicated stream for systemd service logs (journalctl) & SSH log collection.
 - [x] **Interactive Log Features:**
   - [x] In-stream Keyword Search & Filtering (via `/` hotkey with match highlighting).
   - [x] Pause Auto-scroll on scroll-up (`a` to resume).
@@ -106,6 +107,10 @@ go build -o wunschpunsch main.go
   - [x] Interactive node menu for managing and restarting cluster members (`Enter` key on table row).
 - [x] **Automated Health & Resource Alerting:**
   - [x] Automatic background detection for node unreachability, high replication lag (>100 MB), and host CPU spikes (>85%) with auto-logging.
+- [x] **Remote SSH & Local Journal Log Integration:**
+  - [x] Full interactive SSH configuration fields (User, Port, SSH Key Path, Password) with active cursor navigation.
+  - [x] Automatic fallback to native local log reader (journalctl / sh) for localhost and 127.0.0.1 endpoints without SSH connection overhead.
+  - [x] Password authentication via sshpass alongside standard SSH public keys.
 - [ ] **Bloat & Autovacuum Tracker:**
   - [ ] Monitor active `autovacuum` workers and table/index bloat ratios.
 - [ ] **Corosync + Pacemaker Full Integration:**
@@ -208,6 +213,11 @@ go build -o wunschpunsch main.go
   - [x] `[Postgres]` — логи и метрики базы данных.
   - [x] `[HA Engine / Patroni]` — события смены ролей, таймлайнов, healthchecks.
   - [x] `[System / Host]` — системные события и предупреждения (CPU/RAM/Disk).
+  - [x] [SSH / Journal] — отдельная подвкладка системных логов служб (journalctl) и SSH-подключений.
+- [x] **Интеграция SSH и локального чтения системных логов:**
+  - [x] Интерактивные текстовые поля SSH (User, Port, Key Path, Password) с отображением фокуса и курсора.
+  - [x] Автоматическое переключение на локальный чтец журналов (journalctl) при подключении к localhost / 127.0.0.1 без необходимости поднятия SSH-сессии.
+  - [x] Поддержка парольного подключения через sshpass и аутентификации по ключам SSH.
 - [x] **Интерактивные возможности логов:**
   - [x] Текстовый поиск и фильтрация по ключевым словам по клавише `/` с подсветкой совпадений.
   - [x] Пауза автоскролла логов при прокрутке вверх (`a` для возобновления).
