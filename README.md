@@ -40,7 +40,7 @@ Built on the modern [Charm](https://charm.sh/) ecosystem (`bubbletea`, `lipgloss
 
 ```bash
 # Clone repository
-git clone https://github.com/your-username/cluster-tui.git
+git clone https://github.com/your-username/wunschpunsch.git
 cd wunschpunsch
 
 # Download dependencies
@@ -60,10 +60,11 @@ go build -o wunschpunsch main.go
 * `Tab` / `Up` / `Down` — Navigate between input fields
 * `Enter` — Submit and connect to cluster
 
-**Main Dashboard (Tabs 1–4)**
-* `1` .. `4` — Jump directly to tab (`1: Topology`, `2: Metrics`, `3: Actions`, `4: Event Logs`)
+**Main Dashboard (Tabs 1–6)**
+* `1` .. `6` — Jump directly to tab (`1: Topology`, `2: Metrics`, `3: Analytics`, `4: Actions`, `5: Event Logs`, `6: Settings`)
 * `Tab` / `l` / `Right` — Next tab
 * `Shift+Tab` / `h` / `Left` — Previous tab
+* `e` / `E` — Export metrics snapshot (JSON / CSV)
 * `Ctrl+C` / `q` — Exit program
 
 ### Roadmap
@@ -77,39 +78,44 @@ go build -o wunschpunsch main.go
   - [x] Reinitialize Replica
   - [x] Maintenance Mode toggle (Pause/Resume)
 - [x] Real-time Patroni log streaming
-  UI Enhancements & Application Settings
 - [x] **Global Settings Menu (Modal / Settings Tab):**
   - [x] On-the-fly UI Language Switching (English / Russian) via i18n.
-  - [x] Color Scheme Selection (Catppuccin, Nord, Monokai, High Contrast).
+  - [x] Color Scheme Selection (Catppuccin, Nord, Monokai).
   - [x] Configurable Cluster Polling Interval (Default: 2s).
 - [x] **Data Export & Logging:**
   - [x] Local Metrics Snapshot Export (JSON / CSV).
   - [x] Event Log Dump & Auto-saving to local file (`~/.wunschpunsch/logs/app.log`).
-  Real-Time Event Logs Improvements
-- [ ] **Sub-tab Filtering inside the Logs Viewport:**
-  - [ ] `[All]` — Unified real-time event stream.
-  - [ ] `[Postgres]` — Database-specific metrics, warnings, and errors.
-  - [ ] `[HA Engine / Patroni]` — Role switches, timeline changes, and failover health checks.
-  - [ ] `[System / Host]` — System alerts (high CPU/RAM/Disk utilization).
-- [ ] **Interactive Log Features:**
-  - [ ] In-stream Keyword Search & Filtering (via `/` hotkey).
-  - [ ] Pause Auto-scroll on scroll-up.
-  Advanced PostgreSQL Diagnostics
-- [ ] **Long Query & Lock Monitoring (Active Queries):**
-  - View running SQL queries directly from `pg_stat_activity`.
-  - Highlight hung transactions (`idle in transaction`) with the ability to safely cancel/terminate long-running backends (`pg_cancel_backend` / `pg_terminate_backend`) directly from the TUI.
+- [x] **Sub-tab Filtering inside the Logs Viewport:**
+  - [x] `[All]` — Unified real-time event stream.
+  - [x] `[Postgres]` — Database-specific metrics, warnings, and errors.
+  - [x] `[HA Engine / Patroni]` — Role switches, timeline changes, and failover health checks.
+  - [x] `[System / Host]` — System alerts (high CPU/RAM/Disk utilization).
+- [x] **Interactive Log Features:**
+  - [x] In-stream Keyword Search & Filtering (via `/` hotkey with match highlighting).
+  - [x] Pause Auto-scroll on scroll-up (`a` to resume).
+- [x] **Long Query & Lock Monitoring (Active Queries & Diagnostics):**
+  - [x] View slow SQL queries directly from `pg_stat_statements`.
+  - [x] Highlight hung transactions (`idle in transaction` / >2s) and active locks from `pg_stat_activity`.
+  - [x] Safely cancel/terminate long-running backends (`pg_cancel_backend` via `k` / `pg_terminate_backend` via `K`) directly from the TUI.
+- [x] **Maintenance & DBA Operations Toolkit:**
+  - [x] Interactive execution of core DBA operations (`CHECKPOINT`, `ANALYZE`, `VACUUM ANALYZE`, killing idle sessions, query stat resets, `VACUUM FULL`).
+  - [x] Risk classification (`LOW`, `MEDIUM`, `HIGH`) and interactive safety confirmation modal dialog.
+- [x] **Patroni Dynamic Configuration (DCS Viewer):**
+  - [x] Inspect dynamic cluster configuration (DCS `/config`) in modal window (`c` key).
+- [x] **Node-level Control & Restart:**
+  - [x] Interactive node menu for managing and restarting cluster members (`Enter` key on table row).
+- [x] **Automated Health & Resource Alerting:**
+  - [x] Automatic background detection for node unreachability, high replication lag (>100 MB), and host CPU spikes (>85%) with auto-logging.
 - [ ] **Bloat & Autovacuum Tracker:**
-  - Monitor active `autovacuum` workers and table/index bloat ratios.
-    Extended HA Stack Support
+  - [ ] Monitor active `autovacuum` workers and table/index bloat ratios.
 - [ ] **Corosync + Pacemaker Full Integration:**
-  - Auto-detection and resource status visualization for `crm_mon` / `pcs status`.
+  - [ ] Auto-detection and resource status visualization for `crm_mon` / `pcs status` (initial client and actions integrated).
 - [ ] **PgBouncer / HAProxy Monitoring:**
-  - Dedicated widget for connection pool status (active client/server pools, waiting clients).
-    Profile Management & Production Safeguards
+  - [ ] Dedicated widget for connection pool status (active client/server pools, waiting clients).
 - [ ] **Connection Manager:**
-  - Save and manage multiple cluster environments (Staging, Prod-1, Prod-2) in an encrypted local configuration file for quick switching.
+  - [ ] Save and manage multiple cluster environments (Staging, Prod-1, Prod-2) in an encrypted local configuration file for quick switching.
 - [ ] **Production Safeguard Mode:**
-  - Visual high-visibility alerts (e.g., prominent red borders or mandatory cluster name confirmation) when performing destructive/critical actions (Failover / Reinit) on Production instances.
+  - [ ] Visual high-visibility alerts (e.g., prominent red borders or mandatory cluster name confirmation) when performing destructive/critical actions (Failover / Reinit) on Production instances.
 ### License
 
 Distributed under the **MIT License**.
@@ -171,10 +177,11 @@ go build -o wunschpunsch main.go
 * `Tab` / `Up` / `Down` — Переход между полями ввода
 * `Enter` — Подключиться к кластеру
 
-**Основные вкладки (1–4)**
-* `1` .. `4` — Быстрый переход по вкладкам (`1: Топология`, `2: Метрики`, `3: Действия`, `4: Логи`)
+**Основные вкладки (1–6)**
+* `1` .. `6` — Быстрый переход по вкладкам (`1: Топология`, `2: Метрики`, `3: Аналитика`, `4: Действия`, `5: Логи`, `6: Настройки`)
 * `Tab` / `l` / `Right` — Следующая вкладка
 * `Shift+Tab` / `h` / `Left` — Предыдущая вкладка
+* `e` / `E` — Экспорт снимка метрик (JSON / CSV)
 * `Ctrl+C` / `q` — Выход из приложения
 
 ### План разработки (Roadmap)
@@ -188,34 +195,44 @@ go build -o wunschpunsch main.go
   - [x] Реинициализация реплики (Reinitialize)
   - [x] Переключение режима обслуживания (Pause/Resume)
 - [x] Просмотр потока логов событий Patroni в реальном времени
-
-- [x] Улучшения UI & Настройки (App Settings)
- - Экран глобальных настроек (Settings Modal/Tab):
- - [x] Переключение языка интерфейса (RU / EN) «на лету» (i18n).
- - [x] Выбор цветовой схемы (Catppuccin, Nord, Monokai, High Contrast).
- - [x] Настройка интервала опрашивания кластера (default: 2s).
-Экспорт данных & Логирование:
- - [x] Сохранение текущего снимка метрик в JSON / CSV на локальную машину.
- - [x] Дамп и автосохранение истории событий логов в файл (~/.cluster-tui/logs/app.log).
-- [x] Вкладки фильтрации (Sub-tabs) внутри Viewport логов:
- - [ ] [All] — единый поток всех событий.
- - [ ] [HA Engine / Patroni] — события смены ролей, таймлайнов, healthchecks.
- - [ ] [System / Host] — системные предупреждения (высокая загрузка CPU/RAM/Disk).
-- [ ] Интерактивные возможности логов:
-  - [ ] Текстовый поиск / фильтрация по ключевым словам по клавише /.
-  - [ ] Пауза автоскролла логов при прокрутке вверх.
-- [ ] Мониторинг долгих запросов и блокировок (Active Queries):
-  - [ ] Просмотр выполняющихся в данный момент SQL-запросов из pg_stat_activity.
-  - [ ] Подсветка зависших транзакций (idle in transaction) и возможность завершить долгий запрос прямо из TUI (pg_cancel_backend / pg_terminate_backend).
-- [ ] Анализ Bloat и очистки (Autovacuum Tracker):
+- [x] **Улучшения UI & Настройки (App Settings):**
+  - [x] Экран глобальных настроек (Settings Modal/Tab).
+  - [x] Переключение языка интерфейса (RU / EN) «на лету» (i18n).
+  - [x] Выбор цветовой схемы (Catppuccin, Nord, Monokai).
+  - [x] Настройка интервала опрашивания кластера (default: 2s).
+- [x] **Экспорт данных & Логирование:**
+  - [x] Сохранение текущего снимка метрик в JSON / CSV на локальную машину.
+  - [x] Дамп и автосохранение истории событий логов в файл (`~/.wunschpunsch/logs/app.log`).
+- [x] **Вкладки фильтрации (Sub-tabs) внутри Viewport логов:**
+  - [x] `[All]` — единый поток всех событий.
+  - [x] `[Postgres]` — логи и метрики базы данных.
+  - [x] `[HA Engine / Patroni]` — события смены ролей, таймлайнов, healthchecks.
+  - [x] `[System / Host]` — системные события и предупреждения (CPU/RAM/Disk).
+- [x] **Интерактивные возможности логов:**
+  - [x] Текстовый поиск и фильтрация по ключевым словам по клавише `/` с подсветкой совпадений.
+  - [x] Пауза автоскролла логов при прокрутке вверх (`a` для возобновления).
+- [x] **Мониторинг долгих запросов и блокировок (Active Queries / Вкладка Analytics):**
+  - [x] Просмотр топ медленных SQL-запросов из `pg_stat_statements`.
+  - [x] Подсветка зависших транзакций (`idle in transaction` / >2с) и активных блокировок из `pg_stat_activity`.
+  - [x] Возможность завершить долгий запрос прямо из TUI: мягкая отмена `pg_cancel_backend` (`k`) / принудительное завершение `pg_terminate_backend` (`K`).
+- [x] **Инструменты DBA и операции обслуживания (DBA Operations):**
+  - [x] Выполнение операций обслуживания (`CHECKPOINT`, `ANALYZE`, `VACUUM ANALYZE`, отстрел зависших idle-сессий, сброс статистики, `VACUUM FULL`) с фиксацией времени выполнения.
+  - [x] Градация по уровням риска (`LOW`, `MEDIUM`, `HIGH`) и интерактивный диалог подтверждения перед запуском.
+- [x] **Просмотр динамической конфигурации Patroni (DCS Viewer):**
+  - [x] Просмотр актуальной DCS-конфигурации (`/config`) в модальном окне по клавише `c`.
+- [x] **Управление узлами кластера (Node-level Control):**
+  - [x] Меню управления выбранным узлом и его перезапуск через Patroni API (клавиша `Enter` на строке таблицы).
+- [x] **Автоматическая система алертов и мониторинга ресурсов:**
+  - [x] Автодетект недоступности узлов, отставания репликации > 100 MB и всплесков CPU хоста > 85% с фиксацией в журнале логов.
+- [ ] **Анализ Bloat и очистки (Autovacuum Tracker):**
   - [ ] Отображение текущих процессов autovacuum и уровня раздувания таблиц/индексов.
-- [ ] Полная поддержка Corosync + Pacemaker:
-  - [ ] Детект и отображение ресурсов crm_mon / pcs status для Pacemaker-кластеров.
-- [ ] Мониторинг PgBouncer / HAProxy:
+- [ ] **Полная поддержка Corosync + Pacemaker:**
+  - [ ] Детект и отображение ресурсов `crm_mon` / `pcs status` для Pacemaker-кластеров (клиент и команды интегрированы).
+- [ ] **Мониторинг PgBouncer / HAProxy:**
   - [ ] Отдельный виджет состояния пулера соединений (количество активных клиентских и серверных пулов, waiting clients).
-- [ ] Менеджер профилей (Connection Manager):
+- [ ] **Менеджер профилей (Connection Manager):**
   - [ ] Возможность сохранять несколько конфигураций кластеров (Staging, Prod-1, Prod-2) в шифрованный локальный файл config и быстро переключаться между ними.
-- [ ] Индикатор «Production Safeguard»:
+- [ ] **Индикатор «Production Safeguard»:**
   - [ ] Визуальное предупреждение (например, красная рамка или подтверждение через ввод имени кластера) при выполнении опасных действий (Failover / Reinit) на Prodbase.
  
 ### Лицензия

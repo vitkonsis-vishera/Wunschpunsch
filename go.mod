@@ -1,4 +1,4 @@
-module cluster-tui
+module wunschpunsch
 
 go 1.25.0
 

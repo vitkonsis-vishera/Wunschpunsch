@@ -63,7 +63,7 @@ func GetDefaultActions() []ActionItem {
 		{
 			ID:          "vacuum_full",
 			Name:        "VACUUM FULL (Blocking!)",
-			Description: "Полный перезапись таблиц для возврата места ОС. БЛОКИРУЕТ ТАБЛИЦЫ!",
+			Description: "Полная перезапись таблиц для возврата места ОС. БЛОКИРУЕТ ТАБЛИЦЫ!",
 			Query:       "VACUUM FULL;",
 			Risk:        RiskHigh,
 		},
@@ -79,4 +79,61 @@ func ExecuteAction(ctx context.Context, db *sql.DB, action ActionItem) (string, 
 		return "", fmt.Errorf("ошибка выполнения [%s]: %w", action.Name, err)
 	}
 	return fmt.Sprintf("[%s] успешно выполнено за %s", action.Name, duration.Round(time.Millisecond)), nil
+}
+
+// --- TUI State Management for Actions ---
+
+type ActionsModel struct {
+	items         []ActionItem
+	selectedIndex int
+	showModal     bool
+	executing     bool
+	lastResult    string
+	lastErr       error
+}
+
+func NewActionsModel() ActionsModel {
+	return ActionsModel{
+		items: GetDefaultActions(),
+	}
+}
+
+func (m *ActionsModel) HandleKey(key string, db *sql.DB) {
+	if m.showModal {
+		switch key {
+		case "y", "Y", "enter":
+			m.showModal = false
+			m.executing = true
+
+			selected := m.items[m.selectedIndex]
+			go func() {
+				res, err := ExecuteAction(context.Background(), db, selected)
+				m.executing = false
+				if err != nil {
+					m.lastErr = err
+					m.lastResult = ""
+				} else {
+					m.lastResult = res
+					m.lastErr = nil
+				}
+			}()
+
+		case "n", "N", "esc":
+			m.showModal = false
+		}
+		return
+	}
+
+	switch key {
+	case "up", "k":
+		if m.selectedIndex > 0 {
+			m.selectedIndex--
+		}
+	case "down", "j":
+		if m.selectedIndex < len(m.items)-1 {
+			m.selectedIndex++
+		}
+	case "enter":
+		m.showModal = true
+	}
 }
