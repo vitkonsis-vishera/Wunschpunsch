@@ -1,10 +1,10 @@
 package pacemaker
 
 import (
-	"cluster-tui/pkg/cluster"
 	"context"
 	"fmt"
 	"os/exec"
+	"wunschpunsch/pkg/cluster"
 )
 
 type PacemakerProvider struct {

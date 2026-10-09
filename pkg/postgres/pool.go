@@ -44,6 +44,54 @@ func NewPGPoolManager(cfg Config) *PGPoolManager {
 	}
 }
 
+// GetPostgresLogs запрашивает последние записи логов напрямую из PostgreSQL
+// с помощью системных функций pg_ls_logdir() и pg_read_file()
+func (m *PGPoolManager) GetPostgresLogs(ctx context.Context, host string, limit int) ([]string, error) {
+	db, err := m.GetDB(host)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	// Чтение последних строк из самого свежего лог-файла в pg_log/log
+	query := `
+		SELECT line FROM (
+			SELECT unnest(string_to_array(
+				pg_read_file(
+					(SELECT name FROM pg_ls_logdir() ORDER BY modification DESC LIMIT 1),
+					0, 200000
+				), E'\n'
+			)) AS line
+		) sub
+		WHERE line <> ''
+		LIMIT $1;
+	`
+
+	rows, err := db.QueryContext(ctx, query, limit)
+	if err != nil {
+		// Если у пользователя PG нет прав на чтение системных файлов или выключен logging_collector
+		return []string{"[Postgres Logger] Чтение логов через SQL недоступно (требуются права pg_read_all_server_files или утилита journalctl)."}, nil
+	}
+	defer rows.Close()
+
+	var logs []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err == nil {
+			logs = append(logs, line)
+		}
+	}
+
+	if len(logs) == 0 {
+		return []string{"[Postgres Logger] Файлы логов PG пусты или не заполняются."}, nil
+	}
+
+	return logs, nil
+}
+
 // GetOrCreatePool возвращает или создает пул подключений к конкретной ноде
 func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxpool.Pool, error) {
 	m.mu.RLock()
@@ -57,12 +105,10 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Двойная проверка на случай race condition
 	if pool, exists := m.pools[host]; exists {
 		return pool, nil
 	}
 
-	// Формируем DSN без логина и пароля
 	connString := fmt.Sprintf("postgres://%s:%d/%s?sslmode=prefer&connect_timeout=3",
 		host, m.cfg.Port, m.cfg.Database)
 
@@ -71,7 +117,6 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 		return nil, fmt.Errorf("failed to parse config for %s: %w", host, err)
 	}
 
-	// Задаем учетные данные напрямую
 	poolConfig.ConnConfig.User = m.cfg.User
 	poolConfig.ConnConfig.Password = m.cfg.Password
 
@@ -88,7 +133,7 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 	return newPool, nil
 }
 
-// GetDB возвращает стандартное подключение *sql.DB для указанного хоста (через адаптер pgx/v5/stdlib)
+// GetDB возвращает стандартное подключение *sql.DB для указанного хоста
 func (m *PGPoolManager) GetDB(host string) (*sql.DB, error) {
 	pool, err := m.GetOrCreatePool(context.Background(), host)
 	if err != nil {
@@ -107,14 +152,12 @@ func (m *PGPoolManager) FetchNodeMetrics(ctx context.Context, host string) NodeM
 		return metrics
 	}
 
-	// 1. Проверка роли (Primary/Standby) и версии
 	err = pool.QueryRow(ctx, "SELECT pg_is_in_recovery(), version()").Scan(&metrics.IsInRecovery, &metrics.PGVersion)
 	if err != nil {
 		metrics.Error = err
 		return metrics
 	}
 
-	// 2. Статистика подключений
 	connQuery := `
 		SELECT 
 			count(*) AS active_conns,
@@ -125,7 +168,6 @@ func (m *PGPoolManager) FetchNodeMetrics(ctx context.Context, host string) NodeM
 	`
 	_ = pool.QueryRow(ctx, connQuery).Scan(&metrics.ActiveConnections, &metrics.MaxConnections)
 
-	// 3. Cache Hit Ratio
 	cacheQuery := `
 		SELECT 
 			CASE WHEN (sum(heap_blks_read) + sum(heap_blks_hit)) = 0 THEN 0.0
@@ -138,7 +180,6 @@ func (m *PGPoolManager) FetchNodeMetrics(ctx context.Context, host string) NodeM
 	return metrics
 }
 
-// Close закрывает все установленные соединения
 func (m *PGPoolManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
