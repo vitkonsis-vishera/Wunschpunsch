@@ -2,132 +2,220 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"time"
 )
 
-// QueryStat содержит информацию о тяжелых запросах из pg_stat_statements
 type QueryStat struct {
-	Query     string
-	Calls     int64
-	TotalTime float64 // в миллисекундах
-	MeanTime  float64 // в миллисекундах
-	Rows      int64
+	Query     string  `json:"query"`
+	Calls     int64   `json:"calls"`
+	TotalTime float64 `json:"total_time_ms"`
+	MeanTime  float64 `json:"mean_time_ms"`
 }
 
-// LockInfo содержит информацию о блокировках и зависших сессиях
 type LockInfo struct {
-	PID          int
-	User         string
-	Database     string
-	ClientAddr   string
-	State        string
-	DurationSec  float64
-	BlockedByPID int
-	Query        string
+	PID         int     `json:"pid"`
+	User        string  `json:"user"`
+	State       string  `json:"state"`
+	DurationSec float64 `json:"duration_sec"`
+	Query       string  `json:"query"`
 }
 
-// GetTopQueries запрашивает топ-10 самых медленных запросов по общему времени выполнения
-func (p *PGPoolManager) GetTopQueries(ctx context.Context, host string) ([]QueryStat, error) {
-	conn, err := p.GetOrCreatePool(ctx, host)
+type AutovacuumWorker struct {
+	PID         int     `json:"pid"`
+	Database    string  `json:"database"`
+	Table       string  `json:"table"`
+	Phase       string  `json:"phase"`
+	DurationSec float64 `json:"duration_sec"`
+}
+
+type TableBloatStat struct {
+	SchemaName      string     `json:"schema_name"`
+	TableName       string     `json:"table_name"`
+	LiveTuples      int64      `json:"live_tuples"`
+	DeadTuples      int64      `json:"dead_tuples"`
+	DeadTuplesPct   float64    `json:"dead_tuples_pct"`
+	LastAutovacuum  *time.Time `json:"last_autovacuum"`
+	LastAutoanalyze *time.Time `json:"last_autoanalyze"`
+}
+
+func (m *PGPoolManager) GetTopQueries(ctx context.Context, host string) ([]QueryStat, error) {
+	db, err := m.GetDB(host)
 	if err != nil {
-		return nil, fmt.Errorf("connection error: %w", err)
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
 	}
 
-	sql := `
+	query := `
 		SELECT 
-			LEFT(query, 100) AS query_truncated,
-			calls,
-			total_exec_time,
-			mean_exec_time,
-			rows
-		FROM pg_stat_statements
-		ORDER BY total_exec_time DESC
+			query, 
+			calls, 
+			total_exec_time AS total_time, 
+			mean_exec_time AS mean_time 
+		FROM pg_stat_statements 
+		ORDER BY total_exec_time DESC 
 		LIMIT 10;
 	`
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pg_stat_statements (extension enabled?): %w", err)
+		return nil, fmt.Errorf("pg_stat_statements недоступен: %w", err)
 	}
 	defer rows.Close()
 
 	var stats []QueryStat
 	for rows.Next() {
 		var q QueryStat
-		if err := rows.Scan(&q.Query, &q.Calls, &q.TotalTime, &q.MeanTime, &q.Rows); err != nil {
-			continue
+		if err := rows.Scan(&q.Query, &q.Calls, &q.TotalTime, &q.MeanTime); err == nil {
+			stats = append(stats, q)
 		}
-		stats = append(stats, q)
 	}
 
 	return stats, nil
 }
 
-// GetActiveLocks запрашивает процессы, находящиеся в состоянии ожидания/блокировки или выполняющиеся более 2 секунд
-func (p *PGPoolManager) GetActiveLocks(ctx context.Context, host string) ([]LockInfo, error) {
-	conn, err := p.GetOrCreatePool(ctx, host)
+func (m *PGPoolManager) GetActiveLocks(ctx context.Context, host string) ([]LockInfo, error) {
+	db, err := m.GetDB(host)
 	if err != nil {
-		return nil, fmt.Errorf("connection error: %w", err)
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
 	}
 
-	sql := `
+	query := `
 		SELECT 
-			pid,
-			usename,
-			datname,
-			COALESCE(host(client_addr), 'local'),
-			state,
-			EXTRACT(EPOCH FROM (clock_timestamp() - query_start)) AS duration_sec,
-			LEFT(query, 80) AS query
-		FROM pg_stat_activity
+			pid, 
+			usename, 
+			state, 
+			EXTRACT(EPOCH FROM (clock_timestamp() - xact_start)) AS duration_sec, 
+			query 
+		FROM pg_stat_activity 
 		WHERE state != 'idle' 
-		  AND pid != pg_backend_pid()
-		  AND (clock_timestamp() - query_start) > INTERVAL '2 seconds'
-		ORDER BY duration_sec DESC
-		LIMIT 15;
+		  AND xact_start IS NOT NULL 
+		  AND EXTRACT(EPOCH FROM (clock_timestamp() - xact_start)) > 2 
+		ORDER BY duration_sec DESC 
+		LIMIT 10;
 	`
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch lock info: %w", err)
+		return nil, fmt.Errorf("ошибка получения блокировок: %w", err)
 	}
 	defer rows.Close()
 
 	var locks []LockInfo
 	for rows.Next() {
 		var l LockInfo
-		if err := rows.Scan(&l.PID, &l.User, &l.Database, &l.ClientAddr, &l.State, &l.DurationSec, &l.Query); err != nil {
-			continue
+		if err := rows.Scan(&l.PID, &l.User, &l.State, &l.DurationSec, &l.Query); err == nil {
+			locks = append(locks, l)
 		}
-		locks = append(locks, l)
 	}
 
 	return locks, nil
 }
 
-// TerminateBackend завершает процесс в PostgreSQL (pg_cancel_backend или pg_terminate_backend)
-func (p *PGPoolManager) TerminateBackend(ctx context.Context, host string, pid int, force bool) error {
-	conn, err := p.GetOrCreatePool(ctx, host)
+func (m *PGPoolManager) TerminateBackend(ctx context.Context, host string, pid int, force bool) error {
+	db, err := m.GetDB(host)
 	if err != nil {
-		return fmt.Errorf("connection error: %w", err)
+		return fmt.Errorf("ошибка подключения к %s: %w", host, err)
 	}
 
-	funcName := "pg_cancel_backend"
+	query := "SELECT pg_cancel_backend($1)"
 	if force {
-		funcName = "pg_terminate_backend"
+		query = "SELECT pg_terminate_backend($1)"
 	}
 
-	sql := fmt.Sprintf("SELECT %s($1)", funcName)
-
-	var success bool
-	err = conn.QueryRow(ctx, sql, pid).Scan(&success)
+	var res bool
+	err = db.QueryRowContext(ctx, query, pid).Scan(&res)
 	if err != nil {
-		return fmt.Errorf("failed to execute %s(%d): %w", funcName, pid, err)
+		return fmt.Errorf("ошибка выполнения функции: %w", err)
 	}
-
-	if !success {
-		return fmt.Errorf("process %d could not be terminated or already finished", pid)
+	if !res {
+		return fmt.Errorf("процесс с PID %d не существует или недоступен для завершения", pid)
 	}
 
 	return nil
+}
+
+func (m *PGPoolManager) GetAutovacuumWorkers(ctx context.Context, host string) ([]AutovacuumWorker, error) {
+	db, err := m.GetDB(host)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
+	}
+
+	query := `
+		SELECT 
+			a.pid,
+			a.datname,
+			COALESCE(c.relname, 'N/A') AS relname,
+			COALESCE(p.phase, 'running') AS phase,
+			EXTRACT(EPOCH FROM (clock_timestamp() - a.xact_start)) AS duration_sec
+		FROM pg_stat_activity a
+		LEFT JOIN pg_stat_progress_vacuum p ON a.pid = p.pid
+		LEFT JOIN pg_class c ON p.relid = c.oid
+		WHERE a.query LIKE 'autovacuum:%'
+		ORDER BY duration_sec DESC;
+	`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения процессов autovacuum: %w", err)
+	}
+	defer rows.Close()
+
+	var workers []AutovacuumWorker
+	for rows.Next() {
+		var w AutovacuumWorker
+		if err := rows.Scan(&w.PID, &w.Database, &w.Table, &w.Phase, &w.DurationSec); err == nil {
+			workers = append(workers, w)
+		}
+	}
+
+	return workers, nil
+}
+
+func (m *PGPoolManager) GetTableBloatStats(ctx context.Context, host string) ([]TableBloatStat, error) {
+	db, err := m.GetDB(host)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
+	}
+
+	query := `
+		SELECT 
+			schemaname,
+			relname,
+			n_live_tup,
+			n_dead_tup,
+			CASE WHEN (n_live_tup + n_dead_tup) > 0 
+				THEN ROUND((n_dead_tup::numeric / (n_live_tup + n_dead_tup)::numeric) * 100, 1)
+				ELSE 0.0 
+			END AS dead_pct,
+			last_autovacuum,
+			last_autoanalyze
+		FROM pg_stat_user_tables
+		WHERE n_dead_tup > 100
+		ORDER BY n_dead_tup DESC
+		LIMIT 8;
+	`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка чтения статистики bloat: %w", err)
+	}
+	defer rows.Close()
+
+	var stats []TableBloatStat
+	for rows.Next() {
+		var s TableBloatStat
+		var lastVac, lastAnl sql.NullTime
+		if err := rows.Scan(&s.SchemaName, &s.TableName, &s.LiveTuples, &s.DeadTuples, &s.DeadTuplesPct, &lastVac, &lastAnl); err == nil {
+			if lastVac.Valid {
+				s.LastAutovacuum = &lastVac.Time
+			}
+			if lastAnl.Valid {
+				s.LastAutoanalyze = &lastAnl.Time
+			}
+			stats = append(stats, s)
+		}
+	}
+
+	return stats, nil
 }
