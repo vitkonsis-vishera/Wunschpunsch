@@ -83,6 +83,7 @@ type model struct {
 
 	autovacuumWorkers []postgres.AutovacuumWorker
 	tableBloatStats   []postgres.TableBloatStat
+	pgbouncerPools    []postgres.PgBouncerPoolStat
 }
 
 func initialModel() model {
@@ -310,10 +311,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.fetchTopQueriesCmd(m.targetHost),
 						m.fetchActiveLocksCmd(m.targetHost),
 						m.fetchBloatStatsCmd(m.targetHost),
+						m.fetchPgBouncerPoolsCmd(m.targetHost),
 					)
 				}
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+	case pgbouncerLoadedMsg:
+		if msg.err == nil {
+			m.pgbouncerPools = msg.pools
 		}
 
 	case bloatLoadedMsg:
@@ -708,6 +715,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.fetchTopQueriesCmd(m.targetHost),
 					m.fetchActiveLocksCmd(m.targetHost),
 					m.fetchBloatStatsCmd(m.targetHost),
+					m.fetchPgBouncerPoolsCmd(m.targetHost),
 				)
 			case "up":
 				if len(m.activeLocks) > 0 {
@@ -744,6 +752,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.fetchTopQueriesCmd(m.targetHost),
 							m.fetchActiveLocksCmd(m.targetHost),
 							m.fetchBloatStatsCmd(m.targetHost),
+							m.fetchPgBouncerPoolsCmd(m.targetHost),
 						)
 					}
 				}
@@ -755,6 +764,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.fetchTopQueriesCmd(m.targetHost),
 							m.fetchActiveLocksCmd(m.targetHost),
 							m.fetchBloatStatsCmd(m.targetHost),
+							m.fetchPgBouncerPoolsCmd(m.targetHost),
 						)
 					}
 				}

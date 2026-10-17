@@ -123,6 +123,11 @@ type bloatLoadedMsg struct {
 	err     error
 }
 
+type pgbouncerLoadedMsg struct {
+	pools []postgres.PgBouncerPoolStat
+	err   error
+}
+
 type appSettings struct {
 	Language        language
 	Theme           themeType

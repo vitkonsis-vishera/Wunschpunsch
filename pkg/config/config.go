@@ -6,14 +6,22 @@ import (
 	"path/filepath"
 )
 
+type ClusterProfile struct {
+	Name     string `json:"name"`
+	Endpoint string `json:"endpoint"`
+	User     string `json:"user"`
+}
+
 type AppConfig struct {
-	Language        int    `json:"language"`
-	Theme           int    `json:"theme"`
-	PollIntervalSec int    `json:"poll_interval_sec"`
-	SSHUser         string `json:"ssh_user"`
-	SSHPort         int    `json:"ssh_port"`
-	SSHKeyPath      string `json:"ssh_key_path"`
-	SSHPassword     string `json:"ssh_password"`
+	Language        int              `json:"language"`
+	Theme           int              `json:"theme"`
+	PollIntervalSec int              `json:"poll_interval_sec"`
+	SSHUser         string           `json:"ssh_user"`
+	SSHPort         int              `json:"ssh_port"`
+	SSHKeyPath      string           `json:"ssh_key_path"`
+	SSHPassword     string           `json:"ssh_password"`
+	Profiles        []ClusterProfile `json:"profiles"`
+	ActiveProfile   string           `json:"active_profile"`
 }
 
 func DefaultConfig() AppConfig {

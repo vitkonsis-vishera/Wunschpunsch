@@ -378,6 +378,19 @@ func (m model) fetchBloatStatsCmd(host string) tea.Cmd {
 	}
 }
 
+func (m model) fetchPgBouncerPoolsCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return pgbouncerLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		pools, err := m.pgManager.GetPgBouncerPools(ctx, host)
+		return pgbouncerLoadedMsg{pools: pools, err: err}
+	}
+}
+
 func (m model) fetchSSHLogsCmd(host string, service string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)

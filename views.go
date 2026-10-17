@@ -311,6 +311,21 @@ func (m model) renderAnalyticsTab() string {
 		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(
 			"Подсказка: [k] Мягкая отмена (pg_cancel_backend) | [K] Принудительное завершение (pg_terminate_backend) | [r] Обновить",
 		))
+		s.WriteString("\n\n")
+	}
+
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("120")).Render("⚡ PgBouncer Pools Status (SHOW POOLS)\n\n"))
+
+	if len(m.pgbouncerPools) == 0 {
+		s.WriteString(" ℹ️ Нет данных пулов PgBouncer (убедитесь, что подключены к порту PgBouncer, например 6432).\n\n")
+	} else {
+		s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8s | %-10s | %-8s | %-8s | %-8s\n", "Database", "User", "ClActive", "ClWaiting", "SvActive", "SvIdle", "MaxWait"))
+		s.WriteString(strings.Repeat("-", 80) + "\n")
+		for _, p := range m.pgbouncerPools {
+			s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8d | %-10d | %-8d | %-8d | %-8ds\n",
+				p.Database, p.User, p.ClActive, p.ClWaiting, p.SvActive, p.SvIdle, p.Maxwait))
+		}
+		s.WriteString("\n")
 	}
 
 	return s.String()

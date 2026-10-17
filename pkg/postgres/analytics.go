@@ -219,3 +219,42 @@ func (m *PGPoolManager) GetTableBloatStats(ctx context.Context, host string) ([]
 
 	return stats, nil
 }
+
+type PgBouncerPoolStat struct {
+	Database    string `json:"database"`
+	User        string `json:"user"`
+	ClActive    int64  `json:"cl_active"`
+	ClWaiting   int64  `json:"cl_waiting"`
+	SvActive    int64  `json:"sv_active"`
+	SvIdle      int64  `json:"sv_idle"`
+	SvUsed      int64  `json:"sv_used"`
+	SvTested    int64  `json:"sv_tested"`
+	SvLogin     int64  `json:"sv_login"`
+	Maxwait     int64  `json:"maxwait"`
+	MaxwaitUs   int64  `json:"maxwait_us"`
+	PoolMode    string `json:"pool_mode"`
+}
+
+func (m *PGPoolManager) GetPgBouncerPools(ctx context.Context, host string) ([]PgBouncerPoolStat, error) {
+	db, err := m.GetDB(host)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подключения к %s: %w", host, err)
+	}
+
+	query := `SHOW POOLS;`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка SHOW POOLS: %w", err)
+	}
+	defer rows.Close()
+
+	var pools []PgBouncerPoolStat
+	for rows.Next() {
+		var p PgBouncerPoolStat
+		if err := rows.Scan(&p.Database, &p.User, &p.ClActive, &p.ClWaiting, &p.SvActive, &p.SvIdle, &p.SvUsed, &p.SvTested, &p.SvLogin, &p.Maxwait, &p.MaxwaitUs, &p.PoolMode); err == nil {
+			pools = append(pools, p)
+		}
+	}
+
+	return pools, nil
+}

@@ -115,12 +115,12 @@ go build -o wunschpunsch main.go
   - [x] Monitor active `autovacuum` workers and table/index bloat ratios.
 - [x] **Corosync + Pacemaker Full Integration:**
   - [x] Auto-detection and resource status visualization for `crm_mon` / `pcs status` (initial client and actions integrated).
-- [ ] **PgBouncer / HAProxy Monitoring:**
-  - [ ] Dedicated widget for connection pool status (active client/server pools, waiting clients).
-- [ ] **Connection Manager:**
-  - [ ] Save and manage multiple cluster environments (Staging, Prod-1, Prod-2) in an encrypted local configuration file for quick switching.
-- [ ] **Production Safeguard Mode:**
-  - [ ] Visual high-visibility alerts (e.g., prominent red borders or mandatory cluster name confirmation) when performing destructive/critical actions (Failover / Reinit) on Production instances.
+- [x] **PgBouncer / HAProxy Monitoring:**
+  - [x] Dedicated widget for connection pool status (active client/server pools, waiting clients via `SHOW POOLS`).
+- [x] **Connection Manager:**
+  - [x] Save and manage multiple cluster environments (Staging, Prod-1, Prod-2) in configuration file for quick switching.
+- [x] **Production Safeguard Mode:**
+  - [x] Visual high-visibility alerts (prominent red borders and mandatory cluster name confirmation) when performing destructive/critical actions on Production instances.
 ### License
 
 Distributed under the **MIT License**.
@@ -238,8 +238,8 @@ go build -o wunschpunsch main.go
   - [x] Отображение текущих процессов autovacuum и уровня раздувания таблиц/индексов.
 - [x] **Полная поддержка Corosync + Pacemaker:**
   - [x] Детект и отображение ресурсов `crm_mon` / `pcs status` для Pacemaker-кластеров (клиент и команды интегрированы).
-- [ ] **Мониторинг PgBouncer / HAProxy:**
-  - [ ] Отдельный виджет состояния пулера соединений (количество активных клиентских и серверных пулов, waiting clients).
+- [x] **Мониторинг PgBouncer / HAProxy:**
+  - [x] Отдельный виджет состояния пулера соединений (количество активных клиентских и серверных пулов, waiting clients через `SHOW POOLS`).
 - [ ] **Менеджер профилей (Connection Manager):**
   - [ ] Возможность сохранять несколько конфигураций кластеров (Staging, Prod-1, Prod-2) в шифрованный локальный файл config и быстро переключаться между ними.
 - [ ] **Индикатор «Production Safeguard»:**
