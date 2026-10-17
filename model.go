@@ -80,6 +80,9 @@ type model struct {
 
 	actionsSelectedIndex  int
 	showConfirmationModal bool
+
+	autovacuumWorkers []postgres.AutovacuumWorker
+	tableBloatStats   []postgres.TableBloatStat
 }
 
 func initialModel() model {
@@ -161,7 +164,6 @@ func initialModel() model {
 		initialSettings.SSHPort = 22
 	}
 
-	// Инициализация текстовых инпутов для экрана настроек с поддержкой курсора
 	sInputs := make([]textinput.Model, 4)
 	sInputs[0] = textinput.New()
 	sInputs[0].SetValue(initialSettings.SSHUser)
@@ -304,10 +306,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if m.tab == tabAnalytics {
-					cmds = append(cmds, m.fetchTopQueriesCmd(m.targetHost), m.fetchActiveLocksCmd(m.targetHost))
+					cmds = append(cmds,
+						m.fetchTopQueriesCmd(m.targetHost),
+						m.fetchActiveLocksCmd(m.targetHost),
+						m.fetchBloatStatsCmd(m.targetHost),
+					)
 				}
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+	case bloatLoadedMsg:
+		if msg.err == nil {
+			m.autovacuumWorkers = msg.workers
+			m.tableBloatStats = msg.stats
 		}
 
 	case dcsLoadedMsg:
@@ -591,7 +603,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Логика переключения и ввода в окне Settings
 		if m.tab == tabSettings {
 			switch msg.String() {
 			case "up":
@@ -601,7 +612,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "down":
-				if m.settingsCursor < 6 { // Максимальный индекс теперь 6
+				if m.settingsCursor < 6 {
 					m.settingsCursor++
 					m.updateSettingsFocus()
 				}
@@ -620,7 +631,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.saveSettingsFromInputs()
 			}
 
-			// Если курсор на инпутах SSH (3..6)
 			if m.settingsCursor >= 3 && m.settingsCursor <= 6 {
 				idx := m.settingsCursor - 3
 				var cmd tea.Cmd
@@ -697,6 +707,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(
 					m.fetchTopQueriesCmd(m.targetHost),
 					m.fetchActiveLocksCmd(m.targetHost),
+					m.fetchBloatStatsCmd(m.targetHost),
 				)
 			case "up":
 				if len(m.activeLocks) > 0 {
@@ -732,6 +743,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.Batch(
 							m.fetchTopQueriesCmd(m.targetHost),
 							m.fetchActiveLocksCmd(m.targetHost),
+							m.fetchBloatStatsCmd(m.targetHost),
 						)
 					}
 				}
@@ -742,6 +754,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.Batch(
 							m.fetchTopQueriesCmd(m.targetHost),
 							m.fetchActiveLocksCmd(m.targetHost),
+							m.fetchBloatStatsCmd(m.targetHost),
 						)
 					}
 				}
@@ -754,6 +767,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(
 					m.fetchTopQueriesCmd(m.targetHost),
 					m.fetchActiveLocksCmd(m.targetHost),
+					m.fetchBloatStatsCmd(m.targetHost),
 				)
 			case "4":
 				m.tab = tabActions

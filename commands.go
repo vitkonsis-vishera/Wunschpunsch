@@ -363,6 +363,21 @@ func (m model) fetchLogsCmd() tea.Cmd {
 	}
 }
 
+func (m model) fetchBloatStatsCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return bloatLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		workers, _ := m.pgManager.GetAutovacuumWorkers(ctx, host)
+		stats, err := m.pgManager.GetTableBloatStats(ctx, host)
+
+		return bloatLoadedMsg{workers: workers, stats: stats, err: err}
+	}
+}
+
 func (m model) fetchSSHLogsCmd(host string, service string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)

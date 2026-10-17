@@ -117,6 +117,12 @@ func (t themeType) String() string {
 	}
 }
 
+type bloatLoadedMsg struct {
+	workers []postgres.AutovacuumWorker
+	stats   []postgres.TableBloatStat
+	err     error
+}
+
 type appSettings struct {
 	Language        language
 	Theme           themeType

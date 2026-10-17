@@ -111,10 +111,10 @@ go build -o wunschpunsch main.go
   - [x] Full interactive SSH configuration fields (User, Port, SSH Key Path, Password) with active cursor navigation.
   - [x] Automatic fallback to native local log reader (journalctl / sh) for localhost and 127.0.0.1 endpoints without SSH connection overhead.
   - [x] Password authentication via sshpass alongside standard SSH public keys.
-- [ ] **Bloat & Autovacuum Tracker:**
-  - [ ] Monitor active `autovacuum` workers and table/index bloat ratios.
-- [ ] **Corosync + Pacemaker Full Integration:**
-  - [ ] Auto-detection and resource status visualization for `crm_mon` / `pcs status` (initial client and actions integrated).
+- [x] **Bloat & Autovacuum Tracker:**
+  - [x] Monitor active `autovacuum` workers and table/index bloat ratios.
+- [x] **Corosync + Pacemaker Full Integration:**
+  - [x] Auto-detection and resource status visualization for `crm_mon` / `pcs status` (initial client and actions integrated).
 - [ ] **PgBouncer / HAProxy Monitoring:**
   - [ ] Dedicated widget for connection pool status (active client/server pools, waiting clients).
 - [ ] **Connection Manager:**
@@ -234,10 +234,10 @@ go build -o wunschpunsch main.go
   - [x] Меню управления выбранным узлом и его перезапуск через Patroni API (клавиша `Enter` на строке таблицы).
 - [x] **Автоматическая система алертов и мониторинга ресурсов:**
   - [x] Автодетект недоступности узлов, отставания репликации > 100 MB и всплесков CPU хоста > 85% с фиксацией в журнале логов.
-- [ ] **Анализ Bloat и очистки (Autovacuum Tracker):**
-  - [ ] Отображение текущих процессов autovacuum и уровня раздувания таблиц/индексов.
-- [ ] **Полная поддержка Corosync + Pacemaker:**
-  - [ ] Детект и отображение ресурсов `crm_mon` / `pcs status` для Pacemaker-кластеров (клиент и команды интегрированы).
+- [x] **Анализ Bloat и очистки (Autovacuum Tracker):**
+  - [x] Отображение текущих процессов autovacuum и уровня раздувания таблиц/индексов.
+- [x] **Полная поддержка Corosync + Pacemaker:**
+  - [x] Детект и отображение ресурсов `crm_mon` / `pcs status` для Pacemaker-кластеров (клиент и команды интегрированы).
 - [ ] **Мониторинг PgBouncer / HAProxy:**
   - [ ] Отдельный виджет состояния пулера соединений (количество активных клиентских и серверных пулов, waiting clients).
 - [ ] **Менеджер профилей (Connection Manager):**
