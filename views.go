@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"wunschpunsch/pkg/i18n"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -70,13 +72,20 @@ func (m model) View() string {
 		lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Engine: "+m.detectedEngine.String()) +
 		statusLineStyle.Render(" | Target: "+m.pgFlavor) + "  " + alertBadge
 
-	tabs := []string{"0: Connect", "1: Topology", "2: Metrics", "3: Analytics", "4: Actions", "5: Event Logs", "6: Settings"}
+	langStr := i18n.RU
+	if m.settings.Language == LangEN {
+		langStr = i18n.EN
+	}
+	loc := i18n.NewLocalizer(langStr)
+	t := loc.T()
+
+	tabs := []string{t.ConnectTab, t.TopologyTab, t.MetricsTab, t.AnalyticsTab, t.ActionsTab, t.LogsTab, t.SettingsTab}
 	var renderedTabs []string
-	for i, t := range tabs {
+	for i, tabName := range tabs {
 		if activeTab(i) == m.tab {
-			renderedTabs = append(renderedTabs, activeTabStyle.Render(t))
+			renderedTabs = append(renderedTabs, activeTabStyle.Render(tabName))
 		} else {
-			renderedTabs = append(renderedTabs, inactiveTabStyle.Render(t))
+			renderedTabs = append(renderedTabs, inactiveTabStyle.Render(tabName))
 		}
 	}
 
@@ -88,18 +97,33 @@ func (m model) View() string {
 	if m.tab == tabConnect {
 		var statusMsg string
 		if m.connecting {
-			statusMsg = lipgloss.NewStyle().Foreground(warningColor).Render("Detecting HA Engine / Standalone PG & Connecting...")
+			connectingText := m.tr("Определение HA-движка / Standalone PG и подключение...", "Detecting HA Engine / Standalone PG & Connecting...")
+			statusMsg = lipgloss.NewStyle().Foreground(warningColor).Render(connectingText)
 		} else if m.lastError != nil {
-			errText := fmt.Sprintf("Connection Error: %v", m.lastError)
+			errPrefix := m.tr("Ошибка подключения", "Connection Error")
+			errText := fmt.Sprintf("%s: %v", errPrefix, m.lastError)
 			statusMsg = lipgloss.NewStyle().
 				Foreground(dangerColor).
 				Width(containerWidth - 4).
 				Render(errText)
 		}
 
+		krbCheckbox := m.tr("[ ] Kerberos GSSAPI / Keytab", "[ ] Kerberos GSSAPI / Keytab")
+		if m.useKerberos {
+			krbCheckbox = m.tr("[x] Kerberos GSSAPI / Keytab", "[x] Kerberos GSSAPI / Keytab")
+		}
+		krbStyle := lipgloss.NewStyle().Foreground(subtleColor)
+		if m.focusIndex == 3 {
+			krbStyle = lipgloss.NewStyle().Foreground(primaryColor).Bold(true)
+		}
+		renderedKrb := krbStyle.Render(krbCheckbox)
+
+		formTitle := m.tr("Подключение к кластеру PostgreSQL или одиночной БД", "Connect to PostgreSQL Cluster or Single Database")
+		connectHint := m.tr("Нажмите [ENTER] для подключения  •  [Up/Down] Фокус  •  [Space] Вкл/выкл Kerberos", "Press [ENTER] to Connect  •  [Up/Down] Move Focus  •  [Space] Toggle Kerberos")
+
 		form := lipgloss.JoinVertical(
 			lipgloss.Left,
-			lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Connect to PostgreSQL Cluster or Single Database"),
+			lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(formTitle),
 			"\n\n",
 			m.inputs[0].View(),
 			"\n",
@@ -107,9 +131,13 @@ func (m model) View() string {
 			"\n",
 			m.inputs[2].View(),
 			"\n",
+			renderedKrb,
+			"\n",
+			m.inputs[3].View(),
+			"\n",
 			statusMsg,
 			"\n\n",
-			lipgloss.NewStyle().Foreground(subtleColor).Render("Press [ENTER] to Connect  •  [Up/Down] Move Focus"),
+			lipgloss.NewStyle().Foreground(subtleColor).Render(connectHint),
 		)
 		body = currentBoxStyle.Render(form)
 	} else {
@@ -333,10 +361,15 @@ func (m model) renderAnalyticsTab() string {
 
 func (m *model) renderActionsView() string {
 	var s strings.Builder
+	isRU := m.settings.Language == LangRU
 
-	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("🔧 Maintenance & DBA Operations\n\n"))
+	title := "🔧 Maintenance & DBA Operations\n\n"
+	if isRU {
+		title = "🔧 Обслуживание и операции администратора БД\n\n"
+	}
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(title))
 
-	for i, action := range GetDefaultActions() {
+	for i, action := range GetDefaultActions(isRU) {
 		cursor := " "
 		if i == m.actionsSelectedIndex {
 			cursor = ">"
@@ -349,18 +382,39 @@ func (m *model) renderActionsView() string {
 	switch m.detectedEngine {
 	case EnginePatroni:
 		s.WriteString("\n" + strings.Repeat("-", 60) + "\n\n")
-		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(dangerColor).Render("⚡ Cluster Management Actions (Patroni / HA)\n\n"))
-		s.WriteString("  [S] Switchover (Graceful Leader Transfer)\n")
-		s.WriteString("  [F] Failover (Force Leader Selection)\n")
-		s.WriteString("  [R] Reinitialize Replica\n")
-		s.WriteString("  [P] Pause/Resume Auto-failover (Maintenance Mode)\n")
+		patroniTitle := "⚡ Cluster Management Actions (Patroni / HA)\n\n"
+		if isRU {
+			patroniTitle = "⚡ Действия управления кластером (Patroni / HA)\n\n"
+		}
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(dangerColor).Render(patroniTitle))
+		if isRU {
+			s.WriteString("  [S] Switchover (Безопасный перенос лидера)\n")
+			s.WriteString("  [F] Failover (Принудительный выбор лидера)\n")
+			s.WriteString("  [R] Переинициализация реплики\n")
+			s.WriteString("  [P] Пауза/Возобновление авто-failover (Режим обслуживания)\n")
+		} else {
+			s.WriteString("  [S] Switchover (Graceful Leader Transfer)\n")
+			s.WriteString("  [F] Failover (Force Leader Selection)\n")
+			s.WriteString("  [R] Reinitialize Replica\n")
+			s.WriteString("  [P] Pause/Resume Auto-failover (Maintenance Mode)\n")
+		}
 
 	case EnginePacemaker:
 		s.WriteString("\n" + strings.Repeat("-", 60) + "\n\n")
-		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render("⚡ Cluster Management Actions (Corosync / Pacemaker)\n\n"))
-		s.WriteString("  [M] Move Resource (pcs resource move)\n")
-		s.WriteString("  [C] Cleanup Resource (pcs resource cleanup)\n")
-		s.WriteString("  [S] Standby Node (pcs node standby)\n")
+		paceTitle := "⚡ Cluster Management Actions (Corosync / Pacemaker)\n\n"
+		if isRU {
+			paceTitle = "⚡ Действия управления кластером (Corosync / Pacemaker)\n\n"
+		}
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render(paceTitle))
+		if isRU {
+			s.WriteString("  [M] Переместить ресурс (pcs resource move)\n")
+			s.WriteString("  [C] Очистить ошибки ресурса (pcs resource cleanup)\n")
+			s.WriteString("  [S] Перевести узел в standby (pcs node standby)\n")
+		} else {
+			s.WriteString("  [M] Move Resource (pcs resource move)\n")
+			s.WriteString("  [C] Cleanup Resource (pcs resource cleanup)\n")
+			s.WriteString("  [S] Standby Node (pcs node standby)\n")
+		}
 	}
 
 	return s.String()
@@ -368,9 +422,14 @@ func (m *model) renderActionsView() string {
 
 func (m *model) renderStandaloneActions() string {
 	var s string
-	s += "  🔧 Maintenance & DBA Operations (Single Node)\n\n"
+	isRU := m.settings.Language == LangRU
+	if isRU {
+		s += "  🔧 Обслуживание и операции администратора БД (Одиночный узел)\n\n"
+	} else {
+		s += "  🔧 Maintenance & DBA Operations (Single Node)\n\n"
+	}
 
-	for i, action := range GetDefaultActions() {
+	for i, action := range GetDefaultActions(isRU) {
 		cursor := " "
 		if i == m.actionsSelectedIndex {
 			cursor = ">"
@@ -385,6 +444,15 @@ func (m *model) renderStandaloneActions() string {
 }
 
 func (m *model) renderClusterActions() string {
+	isRU := m.settings.Language == LangRU
+	if isRU {
+		s := "  ⚡ Действия управления кластером (Patroni / HA)\n\n"
+		s += "  [S] Switchover (Безопасный перенос лидера)\n"
+		s += "  [F] Failover (Принудительный выбор лидера)\n"
+		s += "  [R] Переинициализация реплики\n"
+		s += "  [P] Пауза/Возобновление авто-failover (Режим обслуживания)\n"
+		return s
+	}
 	s := "  ⚡ Cluster Management Actions (Patroni / HA)\n\n"
 	s += "  [S] Switchover (Graceful Leader Transfer)\n"
 	s += "  [F] Failover (Force Leader Selection)\n"
@@ -394,7 +462,8 @@ func (m *model) renderClusterActions() string {
 }
 
 func (m *model) renderModal() string {
-	actions := GetDefaultActions()
+	isRU := m.settings.Language == LangRU
+	actions := GetDefaultActions(isRU)
 	if m.actionsSelectedIndex < 0 || m.actionsSelectedIndex >= len(actions) {
 		return ""
 	}

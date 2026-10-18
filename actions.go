@@ -23,47 +23,94 @@ type ActionItem struct {
 	Risk        RiskLevel
 }
 
-func GetDefaultActions() []ActionItem {
+func GetDefaultActions(isRU bool) []ActionItem {
+	if isRU {
+		return []ActionItem{
+			{
+				ID:          "checkpoint",
+				Name:        "Принудительный CHECKPOINT",
+				Description: "Принудительный сброс грязных страниц из shared_buffers на диск",
+				Query:       "CHECKPOINT;",
+				Risk:        RiskLow,
+			},
+			{
+				ID:          "analyze",
+				Name:        "ANALYZE Базы данных",
+				Description: "Сбор свежей статистики для планировщика запросов",
+				Query:       "ANALYZE;",
+				Risk:        RiskLow,
+			},
+			{
+				ID:          "vacuum_analyze",
+				Name:        "VACUUM ANALYZE",
+				Description: "Очистка мертвых строк и обновление статистики",
+				Query:       "VACUUM (ANALYZE);",
+				Risk:        RiskMedium,
+			},
+			{
+				ID:          "terminate_idle",
+				Name:        "Завершить idle-сессии (>5м)",
+				Description: "Принудительно закрыть соединения в состоянии idle > 5 минут",
+				Query:       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND state_change < clock_timestamp() - interval '5 minutes' AND pid <> pg_backend_pid();",
+				Risk:        RiskMedium,
+			},
+			{
+				ID:          "reset_stats",
+				Name:        "Сброс статистики запросов",
+				Description: "Сбросить счетчики pg_stat_statements",
+				Query:       "SELECT pg_stat_statements_reset();",
+				Risk:        RiskMedium,
+			},
+			{
+				ID:          "vacuum_full",
+				Name:        "VACUUM FULL (Блокирующий!)",
+				Description: "Полная перезапись таблиц для возврата места ОС. БЛОКИРУЕТ ТАБЛИЦЫ!",
+				Query:       "VACUUM FULL;",
+				Risk:        RiskHigh,
+			},
+		}
+	}
+
 	return []ActionItem{
 		{
 			ID:          "checkpoint",
 			Name:        "Force CHECKPOINT",
-			Description: "Принудительный сброс грязных страниц из shared_buffers на диск",
+			Description: "Force dirty pages flush from shared_buffers to disk",
 			Query:       "CHECKPOINT;",
 			Risk:        RiskLow,
 		},
 		{
 			ID:          "analyze",
 			Name:        "ANALYZE Database",
-			Description: "Сбор свежей статистики для планировщика запросов",
+			Description: "Gather fresh statistics for query planner",
 			Query:       "ANALYZE;",
 			Risk:        RiskLow,
 		},
 		{
 			ID:          "vacuum_analyze",
 			Name:        "VACUUM ANALYZE",
-			Description: "Очистка мертвых строк и обновление статистики",
+			Description: "Clean up dead tuples and update statistics",
 			Query:       "VACUUM (ANALYZE);",
 			Risk:        RiskMedium,
 		},
 		{
 			ID:          "terminate_idle",
 			Name:        "Kill Idle Sessions (>5m)",
-			Description: "Принудительно закрыть соединения в состоянии idle > 5 минут",
+			Description: "Terminate connections in idle state for > 5 minutes",
 			Query:       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND state_change < clock_timestamp() - interval '5 minutes' AND pid <> pg_backend_pid();",
 			Risk:        RiskMedium,
 		},
 		{
 			ID:          "reset_stats",
 			Name:        "Reset Query Statistics",
-			Description: "Сбросить счетчики pg_stat_statements",
+			Description: "Reset pg_stat_statements counters",
 			Query:       "SELECT pg_stat_statements_reset();",
 			Risk:        RiskMedium,
 		},
 		{
 			ID:          "vacuum_full",
 			Name:        "VACUUM FULL (Blocking!)",
-			Description: "Полная перезапись таблиц для возврата места ОС. БЛОКИРУЕТ ТАБЛИЦЫ!",
+			Description: "Full table rewrite to reclaim disk space. BLOCKS TABLES!",
 			Query:       "VACUUM FULL;",
 			Risk:        RiskHigh,
 		},
@@ -94,7 +141,7 @@ type ActionsModel struct {
 
 func NewActionsModel() ActionsModel {
 	return ActionsModel{
-		items: GetDefaultActions(),
+		items: GetDefaultActions(true),
 	}
 }
 
