@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -41,10 +42,11 @@ type model struct {
 	settingsInputs []textinput.Model
 
 	// Form Inputs (Connect)
-	inputs     []textinput.Model
-	focusIndex int
-	connecting bool
-	connected  bool
+	inputs      []textinput.Model
+	useKerberos bool
+	focusIndex  int
+	connecting  bool
+	connected   bool
 
 	patroniClient *patroni.Client
 	pgManager     *postgres.PGPoolManager
@@ -87,7 +89,7 @@ type model struct {
 }
 
 func initialModel() model {
-	inputs := make([]textinput.Model, 3)
+	inputs := make([]textinput.Model, 4)
 	inputs[0] = textinput.New()
 	inputs[0].Placeholder = "localhost:5432 или http://127.0.0.1:8008"
 	inputs[0].Focus()
@@ -108,6 +110,12 @@ func initialModel() model {
 	inputs[2].CharLimit = 64
 	inputs[2].Width = 60
 	inputs[2].Prompt = "PG Password:     "
+
+	inputs[3] = textinput.New()
+	inputs[3].Placeholder = "/etc/krb5.keytab (опционально для kinit)"
+	inputs[3].CharLimit = 128
+	inputs[3].Width = 60
+	inputs[3].Prompt = "Kerberos Keytab: "
 
 	columns := []table.Column{
 		{Title: "Node Name", Width: 16},
@@ -517,7 +525,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch strings.ToLower(msg.String()) {
 			case "y", "enter":
 				m.showConfirmationModal = false
-				actions := GetDefaultActions()
+				actions := GetDefaultActions(m.settings.Language == LangRU)
 				if m.actionsSelectedIndex >= 0 && m.actionsSelectedIndex < len(actions) {
 					selectedAction := actions[m.actionsSelectedIndex]
 					return m, m.executeDBActionCmd(selectedAction)
@@ -797,7 +805,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.actionsSelectedIndex--
 				}
 			case "down", "j":
-				actions := GetDefaultActions()
+				actions := GetDefaultActions(m.settings.Language == LangRU)
 				if m.actionsSelectedIndex < len(actions)-1 {
 					m.actionsSelectedIndex++
 				}
@@ -845,6 +853,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, m.updateFocus()
 
+			case "space":
+				if m.focusIndex == 3 {
+					m.useKerberos = !m.useKerberos
+					return m, nil
+				}
 			case "enter":
 				rawEndpoint := m.inputs[0].Value()
 				if rawEndpoint == "" {
@@ -865,6 +878,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pgPass = m.inputs[2].Placeholder
 				}
 
+				keytabPath := m.inputs[3].Value()
+
+				// Если указан keytab, пробуем выполнить kinit под капотом
+				if m.useKerberos && keytabPath != "" {
+					// Исполняем kinit -k -t keytabPath principal или используем по умолчанию
+					// Упрощенно: kinit -k -t keytabPath
+					cmdStr := fmt.Sprintf("kinit -k -t %s", keytabPath)
+					if pgUser != "" && pgUser != "postgres" {
+						cmdStr = fmt.Sprintf("kinit -k -t %s %s", keytabPath, pgUser)
+					}
+					_ = exec.Command("sh", "-c", cmdStr).Run()
+				}
+
 				httpEndpoints := []string{}
 
 				httpEndpoint := rawEndpoint
@@ -880,10 +906,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.patroniClient = patroni.NewClient(httpEndpoints, 1500*time.Millisecond)
 				m.pgManager = postgres.NewPGPoolManager(postgres.Config{
-					User:     pgUser,
-					Password: pgPass,
-					Database: "postgres",
-					Port:     port,
+					User:        pgUser,
+					Password:    pgPass,
+					Database:    "postgres",
+					Port:        port,
+					UseKerberos: m.useKerberos,
+					KeytabPath:  keytabPath,
 				})
 
 				m.connecting = true

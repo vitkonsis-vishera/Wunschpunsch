@@ -25,10 +25,13 @@ type NodeMetrics struct {
 }
 
 type Config struct {
-	User     string
-	Password string
-	Database string
-	Port     int
+	User        string
+	Password    string
+	Database    string
+	Port        int
+	UseKerberos bool
+	KeytabPath  string
+	Realm       string
 }
 
 type PGPoolManager struct {
@@ -112,13 +115,19 @@ func (m *PGPoolManager) GetOrCreatePool(ctx context.Context, host string) (*pgxp
 	connString := fmt.Sprintf("postgres://%s:%d/%s?sslmode=prefer&connect_timeout=3",
 		host, m.cfg.Port, m.cfg.Database)
 
+	if m.cfg.UseKerberos {
+		connString += "&gssmode=prefer"
+	}
+
 	poolConfig, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config for %s: %w", host, err)
 	}
 
 	poolConfig.ConnConfig.User = m.cfg.User
-	poolConfig.ConnConfig.Password = m.cfg.Password
+	if !m.cfg.UseKerberos {
+		poolConfig.ConnConfig.Password = m.cfg.Password
+	}
 
 	poolConfig.MaxConns = 3
 	poolConfig.MinConns = 1

@@ -135,6 +135,30 @@ func (m *PGPoolManager) TerminateBackend(ctx context.Context, host string, pid i
 	return nil
 }
 
+func (m *PGPoolManager) ExplainQuery(ctx context.Context, host string, queryText string) (string, error) {
+	db, err := m.GetDB(host)
+	if err != nil {
+		return "", fmt.Errorf("ошибка подключения к %s: %w", host, err)
+	}
+
+	explainSQL := "EXPLAIN " + queryText
+	rows, err := db.QueryContext(ctx, explainSQL)
+	if err != nil {
+		return "", fmt.Errorf("ошибка выполнения EXPLAIN: %w", err)
+	}
+	defer rows.Close()
+
+	var planLines []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err == nil {
+			planLines = append(planLines, line)
+		}
+	}
+
+	return fmt.Sprintf("EXPLAIN plan for query:\n%s\n\nPlan:\n%s", queryText, fmt.Sprint(planLines)), nil
+}
+
 func (m *PGPoolManager) GetAutovacuumWorkers(ctx context.Context, host string) ([]AutovacuumWorker, error) {
 	db, err := m.GetDB(host)
 	if err != nil {

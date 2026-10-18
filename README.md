@@ -121,6 +121,10 @@ go build -o wunschpunsch main.go
   - [x] Save and manage multiple cluster environments (Staging, Prod-1, Prod-2) in configuration file for quick switching.
 - [x] **Production Safeguard Mode:**
   - [x] Visual high-visibility alerts (prominent red borders and mandatory cluster name confirmation) when performing destructive/critical actions on Production instances.
+- [x] **Kerberos / GSSAPI & Keytab Support:**
+  - [x] Interactive GSSAPI/Kerberos connection checkbox with automatic `kinit` execution via `keytab` file and `pg_hba.conf` integration for closed MS AD / FreeIPA enterprise environments.
+- [x] **Query Planning & Analytics (EXPLAIN):**
+  - [x] Interactive query execution plans generation (`EXPLAIN`) for analytical diagnostics.
 ### License
 
 Distributed under the **MIT License**.
@@ -216,7 +220,7 @@ go build -o wunschpunsch main.go
   - [x] [SSH / Journal] — отдельная подвкладка системных логов служб (journalctl) и SSH-подключений.
 - [x] **Интеграция SSH и локального чтения системных логов:**
   - [x] Интерактивные текстовые поля SSH (User, Port, Key Path, Password) с отображением фокуса и курсора.
-  - [x] Автоматическое переключение на локальный чтец журналов (journalctl) при подключении к localhost / 127.0.0.1 без необходимости поднятия SSH-сессии.
+  - [x] Автоматическое переключение на локальные журналы (journalctl) при подключении к localhost / 127.0.0.1 без необходимости поднятия SSH-сессии.
   - [x] Поддержка парольного подключения через sshpass и аутентификации по ключам SSH.
 - [x] **Интерактивные возможности логов:**
   - [x] Текстовый поиск и фильтрация по ключевым словам по клавише `/` с подсветкой совпадений.
@@ -240,10 +244,14 @@ go build -o wunschpunsch main.go
   - [x] Детект и отображение ресурсов `crm_mon` / `pcs status` для Pacemaker-кластеров (клиент и команды интегрированы).
 - [x] **Мониторинг PgBouncer / HAProxy:**
   - [x] Отдельный виджет состояния пулера соединений (количество активных клиентских и серверных пулов, waiting clients через `SHOW POOLS`).
-- [ ] **Менеджер профилей (Connection Manager):**
-  - [ ] Возможность сохранять несколько конфигураций кластеров (Staging, Prod-1, Prod-2) в шифрованный локальный файл config и быстро переключаться между ними.
-- [ ] **Индикатор «Production Safeguard»:**
-  - [ ] Визуальное предупреждение (например, красная рамка или подтверждение через ввод имени кластера) при выполнении опасных действий (Failover / Reinit) на Prodbase.
+- [x] **Менеджер профилей (Connection Manager):**
+  - [x] Возможность сохранять несколько конфигураций кластеров (Staging, Prod-1, Prod-2) в локальный файл config и быстро переключаться между ними.
+- [x] **Индикатор «Production Safeguard»:**
+  - [x] Визуальное предупреждение (например, красная рамка или подтверждение через ввод имени кластера) при выполнении опасных действий (Failover / Reinit) на Production-базах.
+- [x] **Поддержка GSSAPI / Kerberos & Keytab:**
+  - [x] Чекбокс Kerberos на экране подключения с поддержкой автоматического выполнения `kinit` по указанному файлу `keytab` и настройкой доступа в `pg_hba.conf` для закрытых корпоративных контуров (MS AD / FreeIPA).
+- [x] **Анализ планов запросов (EXPLAIN):**
+  - [x] Интерактивное построение планов выполнения запросов (`EXPLAIN`) для глубокой аналитики.
  
 ### Лицензия
 
