@@ -125,6 +125,27 @@ go build -o wunschpunsch main.go
   - [x] Interactive GSSAPI/Kerberos connection checkbox with automatic `kinit` execution via `keytab` file and `pg_hba.conf` integration for closed MS AD / FreeIPA enterprise environments.
 - [x] **Query Planning & Analytics (EXPLAIN):**
   - [x] Interactive query execution plans generation (`EXPLAIN`) for analytical diagnostics.
+- [ ] **Advanced DBA & Cluster Operations:**
+  - [ ] **Advanced Replication Lag & LSN Visualizer:**
+    - [ ] Real-time tracking of WAL senders and receivers (`pg_stat_replication`), LSN divergence charts, and recovery time estimation.
+  - [ ] **Interactive Query Profiling & EXPLAIN ANALYZE:**
+    - [ ] Deep execution analysis using buffers, execution time breakdown, and bottleneck visualization directly in the TUI.
+  - [ ] **Automated Index Recommendations & Missing Index Detector:**
+    - [ ] Sequential scan scanning (`pg_stat_user_tables`) and hints for creating missing indexes with `CREATE INDEX` SQL auto-generation.
+  - [ ] **Deadlock Detector & Transaction Tree Visualization:**
+    - [ ] Real-time monitoring of blocked queries and deadlock graphs with root-cause session highlighting.
+  - [ ] **Patroni Switchover / Failover Scheduler & Pre-checks:**
+    - [ ] Pre-switchover validation (replication lag, sync status, disk space) prior to leader change.
+  - [ ] **Prometheus & Grafana Metrics Exporter Integration:**
+    - [ ] Built-in lightweight metrics endpoint (`/metrics`) for external scraping or proxying cluster telemetry.
+  - [ ] **Encrypted Credentials Storage (Vault / AES-256):**
+    - [ ] Secure local password storage with master password encryption or OS keychain integration.
+  - [ ] **Custom Webhooks for Alerts & Slack / Telegram Notifications:**
+    - [ ] Threshold-based alerting configuration for replication lag, CPU spikes, and node failures directly to webhook endpoints.
+  - [ ] **Schema Migrations & DDL History Audit Log:**
+    - [ ] Schema change tracking (`CREATE`, `ALTER`, `DROP`) via event triggers and system audit logs.
+  - [ ] **Standby Cluster Health Matrix:**
+    - [ ] Cross-region replica health monitoring with inter-datacenter latency metrics.
 ### License
 
 Distributed under the **MIT License**.
@@ -252,7 +273,29 @@ go build -o wunschpunsch main.go
   - [x] Чекбокс Kerberos на экране подключения с поддержкой автоматического выполнения `kinit` по указанному файлу `keytab` и настройкой доступа в `pg_hba.conf` для закрытых корпоративных контуров (MS AD / FreeIPA).
 - [x] **Анализ планов запросов (EXPLAIN):**
   - [x] Интерактивное построение планов выполнения запросов (`EXPLAIN`) для глубокой аналитики.
- 
+
+### Продвинутый DBA и операции с кластером
+- [ ] **Визуализатор отставания репликации и LSN (Advanced Replication Lag & LSN Visualizer):**
+  - [ ] Отслеживание в реальном времени WAL senders и receivers (`pg_stat_replication`), графики расхождения LSN и оценка времени восстановления.
+- [ ] **Интерактивное профилирование запросов и EXPLAIN ANALYZE:**
+  - [ ] Глубокий анализ выполнения с использованием буферов, детализацией времени выполнения и визуализацией узких мест прямо в TUI.
+- [ ] **Автоматические рекомендации индексов и детектор пропущенных индексов:**
+  - [ ] Сканирование sequential scans (`pg_stat_user_tables`) и подсказки по созданию недостающих индексов с автогенерацией `CREATE INDEX` SQL-запросов.
+- [ ] **Детектор взаимоблокировок (Deadlocks) и древовидная визуализация транзакций:**
+  - [ ] Мониторинг заблокированных запросов в реальном времени и графы дедлоков с подсветкой сессии-первопричины.
+- [ ] **Планировщик переключений Patroni (Switchover / Failover Scheduler) и предварительные проверки:**
+  - [ ] Валидация перед переключением (отставание репликации, статус синхронизации, свободное место на диске) до смены лидера.
+- [ ] **Интеграция с Prometheus & Grafana Metrics Exporter:**
+  - [ ] Встроенный легковесный эндпоинт метрик (`/metrics`) для внешнего сбора или проксирования телеметрии кластера.
+- [ ] **Зашифрованное хранилище учетных данных (Vault / AES-256):**
+  - [ ] Безопасное хранение локальных паролей с шифрованием по мастер-паролю или интеграцией с системными связками ключей ОС.
+- [ ] **Кастомные вебхуки для алертов и уведомления в Slack / Telegram:**
+  - [ ] Настройка пороговых уведомлений об отставании репликации, всплесках CPU и падении узлов напрямую на вебхук-эндпоинты.
+- [ ] **Миграции схемы и аудит-лог истории DDL:**
+  - [ ] Отслеживание изменений схемы (`CREATE`, `ALTER`, `DROP`) через event triggers и системные журналы аудита.
+- [ ] **Матрица здоровья распределенного резервного кластера (Standby Cluster Health Matrix):**
+  - [ ] Межрегиональный мониторинг состояния реплик с метриками задержки между дата-центрами.
+
 ### Лицензия
 
 Распространяется под лицензией **MIT License**.

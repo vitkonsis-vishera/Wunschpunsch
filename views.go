@@ -18,6 +18,10 @@ func (m model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderModal())
 	}
 
+	if m.showFileBrowser {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderFileBrowserModal())
+	}
+
 	if m.showModal {
 		return m.renderModalView()
 	}
@@ -119,7 +123,7 @@ func (m model) View() string {
 		renderedKrb := krbStyle.Render(krbCheckbox)
 
 		formTitle := m.tr("Подключение к кластеру PostgreSQL или одиночной БД", "Connect to PostgreSQL Cluster or Single Database")
-		connectHint := m.tr("Нажмите [ENTER] для подключения  •  [Up/Down] Фокус  •  [Space] Вкл/выкл Kerberos", "Press [ENTER] to Connect  •  [Up/Down] Move Focus  •  [Space] Toggle Kerberos")
+		connectHint := m.tr("Нажмите [ENTER] для подключения  •  [Up/Down] Фокус  •  [Space] Вкл/выкл Kerberos  •  [Ctrl+O] Выбрать Keytab-файл", "Press [ENTER] to Connect  •  [Up/Down] Move Focus  •  [Space] Toggle Kerberos  •  [Ctrl+O] Browse Keytab")
 
 		form := lipgloss.JoinVertical(
 			lipgloss.Left,

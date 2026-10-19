@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -86,6 +88,17 @@ type model struct {
 	autovacuumWorkers []postgres.AutovacuumWorker
 	tableBloatStats   []postgres.TableBloatStat
 	pgbouncerPools    []postgres.PgBouncerPoolStat
+
+	showFileBrowser   bool
+	fileBrowserDir    string
+	fileBrowserFiles  []fileItem
+	fileBrowserCursor int
+}
+
+type fileItem struct {
+	Name  string
+	IsDir bool
+	Path  string
 }
 
 func initialModel() model {
@@ -521,6 +534,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.evaluateAlerts()
 
 	case tea.KeyMsg:
+		if m.showFileBrowser {
+			switch msg.String() {
+			case "esc":
+				m.showFileBrowser = false
+				return m, nil
+			case "up", "k":
+				if m.fileBrowserCursor > 0 {
+					m.fileBrowserCursor--
+				}
+			case "down", "j":
+				if m.fileBrowserCursor < len(m.fileBrowserFiles)-1 {
+					m.fileBrowserCursor++
+				}
+			case "enter":
+				if m.fileBrowserCursor >= 0 && m.fileBrowserCursor < len(m.fileBrowserFiles) {
+					item := m.fileBrowserFiles[m.fileBrowserCursor]
+					if item.IsDir {
+						m.loadDirectory(item.Path)
+					} else {
+						m.inputs[3].SetValue(item.Path)
+						m.showFileBrowser = false
+					}
+				}
+			}
+			return m, nil
+		}
+
 		if m.showConfirmationModal {
 			switch strings.ToLower(msg.String()) {
 			case "y", "enter":
@@ -853,6 +893,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, m.updateFocus()
 
+			case " ":
+				if m.focusIndex == 3 {
+					m.useKerberos = !m.useKerberos
+					return m, nil
+				}
 			case "space":
 				if m.focusIndex == 3 {
 					m.useKerberos = !m.useKerberos
@@ -919,6 +964,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.fetchClusterDataCmd(), tickCmd(m.settings.PollIntervalSec))
 			}
 
+			if msg.String() == "ctrl+o" || msg.String() == "ctrl+O" {
+				if m.focusIndex == 3 {
+					startDir := m.inputs[3].Value()
+					if startDir == "" || !strings.HasPrefix(startDir, "/") {
+						startDir = "/etc"
+					} else {
+						info, err := os.Stat(startDir)
+						if err != nil || !info.IsDir() {
+							startDir = filepath.Dir(startDir)
+						}
+					}
+					m.loadDirectory(startDir)
+					m.showFileBrowser = true
+					return m, nil
+				}
+			}
+
 			cmd := m.updateInputs(msg)
 			return m, cmd
 		}
@@ -937,6 +999,84 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *model) loadDirectory(dirPath string) {
+	if dirPath == "" {
+		dirPath = "/etc"
+	}
+	m.fileBrowserDir = dirPath
+	m.fileBrowserFiles = []fileItem{}
+	m.fileBrowserCursor = 0
+
+	entries, err := os.ReadDir(dirPath)
+	if err == nil {
+		parentDir := filepath.Dir(dirPath)
+		if parentDir != dirPath {
+			m.fileBrowserFiles = append(m.fileBrowserFiles, fileItem{
+				Name:  ".. (родительская директория)",
+				IsDir: true,
+				Path:  parentDir,
+			})
+		}
+
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			m.fileBrowserFiles = append(m.fileBrowserFiles, fileItem{
+				Name:  info.Name(),
+				IsDir: info.IsDir(),
+				Path:  filepath.Join(dirPath, info.Name()),
+			})
+		}
+	}
+}
+
+func (m model) renderFileBrowserModal() string {
+	s := strings.Builder{}
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("📂 Выбор Kerberos Keytab Файла\n"))
+	s.WriteString(lipgloss.NewStyle().Foreground(subtleColor).Render(fmt.Sprintf("Текущая папка: %s\n\n", m.fileBrowserDir)))
+
+	if len(m.fileBrowserFiles) == 0 {
+		s.WriteString(" (пустая папка или нет доступа)\n")
+	} else {
+		maxShow := 12
+		startIdx := m.fileBrowserCursor - maxShow/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		endIdx := startIdx + maxShow
+		if endIdx > len(m.fileBrowserFiles) {
+			endIdx = len(m.fileBrowserFiles)
+			startIdx = endIdx - maxShow
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			item := m.fileBrowserFiles[i]
+			prefix := "  "
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4"))
+			if i == m.fileBrowserCursor {
+				prefix = "👉 "
+				style = lipgloss.NewStyle().Foreground(primaryColor).Bold(true)
+			}
+
+			icon := "📄 "
+			if item.IsDir {
+				icon = "📁 "
+			}
+			s.WriteString(style.Render(fmt.Sprintf("%s%s%s\n", prefix, icon, item.Name)))
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(lipgloss.NewStyle().Foreground(subtleColor).Render("[Enter] Выбрать/Войти  •  [Up/Down] Навигация  •  [Esc] Отмена"))
+
+	return boxStyle.Width(70).Render(s.String())
 }
 
 func (m *model) updateSettingsFocus() {
