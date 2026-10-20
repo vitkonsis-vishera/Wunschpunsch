@@ -239,7 +239,7 @@ func (m model) View() string {
 			if m.showLogSearch {
 				headerLine = m.logSearchInput.View() + "  " + scrollStatus
 			} else if m.logSearchQuery != "" {
-				searchBadge := lipgloss.NewStyle().Foreground(warningColor).Render("🔍 Filter: " + m.logSearchQuery + " [/ to edit]")
+				searchBadge := lipgloss.NewStyle().Foreground(warningColor).Render("🔍 Filter: " + m.logSearchQuery + " [Ctrl+F / Ctrl+G to edit]")
 				headerLine = lipgloss.JoinHorizontal(lipgloss.Left, subTabHeader, "  ", searchBadge, "  ", scrollStatus)
 			} else {
 				headerLine = lipgloss.JoinHorizontal(lipgloss.Left, subTabHeader, "  ", scrollStatus)
@@ -273,7 +273,7 @@ func (m model) View() string {
 	} else if m.tab == tabAnalytics {
 		footerHint = "Up/Down: Выбор PID  •  k: Cancel Backend  •  K: Terminate Backend  •  r: Обновить  •  Tab: Switch Tab"
 	} else if m.tab == tabLogs {
-		footerHint = "[ / ] Filter  •  / Search  •  Up/Down Scroll  •  'a' Resume Autoscroll  •  e/E Export  •  Ctrl+C Quit"
+		footerHint = "[ Ctrl + F ] Filter  •  [ Ctrl + G ] Search  •  Up/Down Scroll  •  'a' Resume Autoscroll  •  e/E Export  •  Ctrl+C Quit"
 	} else if m.tab == tabSettings {
 		footerHint = "Up/Down: Navigate  •  Left/Right/Space: Change Option  •  Esc/q: Back  •  Ctrl+C: Quit"
 	}

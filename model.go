@@ -697,7 +697,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.tab == tabLogs && m.connected {
 			switch msg.String() {
-			case "/":
+			case "ctrl+f":
+				m.showLogSearch = true
+				return m, m.logSearchInput.Focus()
+			case "ctrl+g":
 				m.showLogSearch = true
 				return m, m.logSearchInput.Focus()
 			case "a":
