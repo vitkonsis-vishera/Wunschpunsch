@@ -18,6 +18,10 @@ func (m model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderModal())
 	}
 
+	if m.showFileBrowser {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderFileBrowserModal())
+	}
+
 	if m.showModal {
 		return m.renderModalView()
 	}
@@ -119,7 +123,7 @@ func (m model) View() string {
 		renderedKrb := krbStyle.Render(krbCheckbox)
 
 		formTitle := m.tr("Подключение к кластеру PostgreSQL или одиночной БД", "Connect to PostgreSQL Cluster or Single Database")
-		connectHint := m.tr("Нажмите [ENTER] для подключения  •  [Up/Down] Фокус  •  [Space] Вкл/выкл Kerberos", "Press [ENTER] to Connect  •  [Up/Down] Move Focus  •  [Space] Toggle Kerberos")
+		connectHint := m.tr("Нажмите [ENTER] для подключения  •  [Up/Down] Фокус  •  [Space] Вкл/выкл Kerberos  •  [Ctrl+O] Выбрать Keytab-файл", "Press [ENTER] to Connect  •  [Up/Down] Move Focus  •  [Space] Toggle Kerberos  •  [Ctrl+O] Browse Keytab")
 
 		form := lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -235,7 +239,7 @@ func (m model) View() string {
 			if m.showLogSearch {
 				headerLine = m.logSearchInput.View() + "  " + scrollStatus
 			} else if m.logSearchQuery != "" {
-				searchBadge := lipgloss.NewStyle().Foreground(warningColor).Render("🔍 Filter: " + m.logSearchQuery + " [/ to edit]")
+				searchBadge := lipgloss.NewStyle().Foreground(warningColor).Render("🔍 Filter: " + m.logSearchQuery + " [Ctrl+F to edit]")
 				headerLine = lipgloss.JoinHorizontal(lipgloss.Left, subTabHeader, "  ", searchBadge, "  ", scrollStatus)
 			} else {
 				headerLine = lipgloss.JoinHorizontal(lipgloss.Left, subTabHeader, "  ", scrollStatus)
@@ -269,7 +273,7 @@ func (m model) View() string {
 	} else if m.tab == tabAnalytics {
 		footerHint = "Up/Down: Выбор PID  •  k: Cancel Backend  •  K: Terminate Backend  •  r: Обновить  •  Tab: Switch Tab"
 	} else if m.tab == tabLogs {
-		footerHint = "[ / ] Filter  •  / Search  •  Up/Down Scroll  •  'a' Resume Autoscroll  •  e/E Export  •  Ctrl+C Quit"
+		footerHint = "[ Ctrl + F ] Filter  •   Up/Down Scroll  •  'a' Resume Autoscroll  •  e/E Export  •  Ctrl+C Quit"
 	} else if m.tab == tabSettings {
 		footerHint = "Up/Down: Navigate  •  Left/Right/Space: Change Option  •  Esc/q: Back  •  Ctrl+C: Quit"
 	}
@@ -352,6 +356,26 @@ func (m model) renderAnalyticsTab() string {
 		for _, p := range m.pgbouncerPools {
 			s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8d | %-10d | %-8d | %-8d | %-8ds\n",
 				p.Database, p.User, p.ClActive, p.ClWaiting, p.SvActive, p.SvIdle, p.Maxwait))
+		}
+		s.WriteString("\n")
+	}
+
+	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86")).Render("📊 Advanced Replication Lag & LSN Visualizer (pg_stat_replication)\n\n"))
+
+	if len(m.replicationLags) == 0 {
+		s.WriteString(" ℹ️ Нет активных реплик или подключены к Standby-ноде (нет WAL senders).\n\n")
+	} else {
+		s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n", "Client Addr", "App Name", "State", "Sync", "Replay LSN", "Replay Lag", "Byte Lag"))
+		s.WriteString(strings.Repeat("-", 95) + "\n")
+		for _, r := range m.replicationLags {
+			byteLagFormatted := fmt.Sprintf("%d B", r.ByteLag)
+			if r.ByteLag > 1024*1024 {
+				byteLagFormatted = fmt.Sprintf("%.2f MB", float64(r.ByteLag)/(1024*1024))
+			} else if r.ByteLag > 1024 {
+				byteLagFormatted = fmt.Sprintf("%.2f KB", float64(r.ByteLag)/1024)
+			}
+			s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n",
+				r.ClientAddr, r.ApplicationName, r.State, r.SyncState, r.ReplayLSN, r.ReplayLag, byteLagFormatted))
 		}
 		s.WriteString("\n")
 	}

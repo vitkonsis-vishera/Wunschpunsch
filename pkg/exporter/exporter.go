@@ -1,11 +1,14 @@
 package exporter
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -88,4 +91,35 @@ func ExportMetricsCSV(filename string, metrics []MetricsSnapshot) error {
 		}
 	}
 	return nil
+}
+
+func SendWebhookAlert(webhookURL string, alertMessage string) error {
+	payload, err := json.Marshal(map[string]string{
+		"text": alertMessage,
+	})
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// GeneratePrometheusMetrics генерирует метрики в формате Prometheus exposition
+func GeneratePrometheusMetrics(metrics map[string]interface{}) string {
+	var sb strings.Builder
+	sb.WriteString("# HELP wunsch_cluster_metric Cluster telemetry metric\n")
+	sb.WriteString("# TYPE wunsch_cluster_metric gauge\n")
+	for k, v := range metrics {
+		sb.WriteString(fmt.Sprintf("wunsch_cluster_%s{target=\"cluster\"} %v\n", k, v))
+	}
+	return sb.String()
 }

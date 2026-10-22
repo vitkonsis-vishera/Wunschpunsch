@@ -44,7 +44,7 @@ func (c *Client) FetchRecentLogs(ctx context.Context, host string, target string
 	if strings.HasPrefix(target, "/") {
 		remoteCmd = fmt.Sprintf("tail -n %d %s 2>/dev/null", lines, target)
 	} else {
-		remoteCmd = fmt.Sprintf("journalctl -u %s -n %d --no-pager 2>/dev/null", target, lines)
+		remoteCmd = fmt.Sprintf("UNIT=$(systemctl list-unit-files --full --plain --no-legend '*%s*' '*postgres*' '*patroni*' '*tantor*' '*pacemaker*' 2>/dev/null | awk '{print $1}' | head -n 1); if [ -n \"$UNIT\" ]; then journalctl -u \"$UNIT\" -n %d --no-pager 2>/dev/null; else echo \"-- No entries --\"; fi", target, lines)
 	}
 
 	var cmd *exec.Cmd

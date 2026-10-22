@@ -281,3 +281,8 @@ type sshLogsLoadedMsg struct {
 	logs []LogEntry
 	err  error
 }
+
+type replicationLagLoadedMsg struct {
+	stats []postgres.ReplicationLagStat
+	err   error
+}
