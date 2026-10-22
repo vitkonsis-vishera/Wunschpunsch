@@ -241,6 +241,25 @@ func (c *Client) Switchover(ctx context.Context, leaderNode, candidateNode strin
 	return c.postAPI(ctx, "/switchover", payload, leaderHost)
 }
 
+func (c *Client) ScheduleSwitchover(ctx context.Context, leaderNode, candidateNode string, scheduledTime string, leaderHost string) error {
+	payload := SwitchoverPayload{
+		Leader:    leaderNode,
+		Candidate: candidateNode,
+		Scheduled: scheduledTime,
+	}
+	return c.postAPI(ctx, "/switchover", payload, leaderHost)
+}
+
+func (c *Client) PreCheckSwitchover(ctx context.Context, member Member) error {
+	if member.State != "running" && member.State != "streaming" {
+		return fmt.Errorf("node %s state is '%s' (must be running/streaming)", member.Name, member.State)
+	}
+	if member.Lag > 100*1024*1024 { // > 100MB
+		return fmt.Errorf("replication lag for node %s is too high (%d MB)", member.Name, member.Lag/(1024*1024))
+	}
+	return nil
+}
+
 func (c *Client) Failover(ctx context.Context, candidateNode string, leaderHost string) error {
 	payload := map[string]string{}
 	if candidateNode != "" {

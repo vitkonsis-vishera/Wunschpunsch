@@ -88,6 +88,7 @@ type model struct {
 	autovacuumWorkers []postgres.AutovacuumWorker
 	tableBloatStats   []postgres.TableBloatStat
 	pgbouncerPools    []postgres.PgBouncerPoolStat
+	replicationLags   []postgres.ReplicationLagStat
 
 	showFileBrowser   bool
 	fileBrowserDir    string
@@ -333,6 +334,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.fetchActiveLocksCmd(m.targetHost),
 						m.fetchBloatStatsCmd(m.targetHost),
 						m.fetchPgBouncerPoolsCmd(m.targetHost),
+						m.fetchReplicationLagCmd(m.targetHost),
 					)
 				}
 			}
@@ -342,6 +344,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pgbouncerLoadedMsg:
 		if msg.err == nil {
 			m.pgbouncerPools = msg.pools
+		}
+
+	case replicationLagLoadedMsg:
+		if msg.err == nil {
+			m.replicationLags = msg.stats
 		}
 
 	case bloatLoadedMsg:
@@ -700,9 +707,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+f":
 				m.showLogSearch = true
 				return m, m.logSearchInput.Focus()
-			case "ctrl+g":
-				m.showLogSearch = true
-				return m, m.logSearchInput.Focus()
 			case "a":
 				m.logAutoScroll = true
 				m.logsViewport.GotoBottom()
@@ -767,6 +771,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.fetchActiveLocksCmd(m.targetHost),
 					m.fetchBloatStatsCmd(m.targetHost),
 					m.fetchPgBouncerPoolsCmd(m.targetHost),
+					m.fetchReplicationLagCmd(m.targetHost),
 				)
 			case "up":
 				if len(m.activeLocks) > 0 {
