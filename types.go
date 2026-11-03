@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"wunschpunsch/pkg/i18n"
 	"wunschpunsch/pkg/patroni"
 	"wunschpunsch/pkg/postgres"
 
@@ -123,6 +124,11 @@ type bloatLoadedMsg struct {
 	err     error
 }
 
+type migrationResultMsg struct {
+	message string
+	err     error
+}
+
 type pgbouncerLoadedMsg struct {
 	pools []postgres.PgBouncerPoolStat
 	err   error
@@ -166,18 +172,18 @@ const (
 	logSubTabSSH
 )
 
-func (l logSubTab) String() string {
+func (l logSubTab) LocalizedString(t i18n.Translation) string {
 	switch l {
 	case logSubTabAll:
-		return "All Logs"
+		return t.LogAll
 	case logSubTabPostgres:
-		return "Postgres"
+		return t.LogPostgres
 	case logSubTabHA:
-		return "HA Engine"
+		return t.LogHA
 	case logSubTabSystem:
-		return "System"
+		return t.LogSystem
 	case logSubTabSSH:
-		return "SSH / Journal"
+		return t.LogSSH
 	default:
 		return "Unknown"
 	}

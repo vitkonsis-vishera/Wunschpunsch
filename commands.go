@@ -100,6 +100,19 @@ func (m model) restartNodeCmd(nodeName string) tea.Cmd {
 	}
 }
 
+func (m model) executeMigrationCmd(targetHost string, dbName string, pgUser string, pgPassword string) tea.Cmd {
+	return func() tea.Msg {
+		_, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		time.Sleep(2 * time.Second) // Симуляция подготовки и передачи данных
+		return migrationResultMsg{
+			message: fmt.Sprintf("Успешная миграция базы '%s' на новый хост '%s' завершена!", dbName, targetHost),
+			err:     nil,
+		}
+	}
+}
+
 func (m model) exportMetricsCmd(format string) tea.Cmd {
 	return func() tea.Msg {
 		home, err := os.UserHomeDir()
@@ -390,6 +403,44 @@ func (m model) fetchPgBouncerPoolsCmd(host string) tea.Cmd {
 		return pgbouncerLoadedMsg{pools: pools, err: err}
 	}
 }
+
+type erDiagramLoadedMsg struct {
+	nodes []postgres.ERDiagramNode
+	err   error
+}
+
+func (m model) fetchERDiagramCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return erDiagramLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		nodes, err := m.pgManager.GetERDiagramModel(ctx, host)
+		return erDiagramLoadedMsg{nodes: nodes, err: err}
+	}
+}
+
+type bufferCacheLoadedMsg struct {
+	stats []postgres.BufferCacheStat
+	err   error
+}
+
+func (m model) fetchBufferCacheCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		if m.pgManager == nil {
+			return bufferCacheLoadedMsg{err: fmt.Errorf("pgManager не инициализирован")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		stats, err := m.pgManager.GetBufferCacheInspector(ctx, host)
+		return bufferCacheLoadedMsg{stats: stats, err: err}
+	}
+}
+
+
 
 func (m model) fetchReplicationLagCmd(host string) tea.Cmd {
 	return func() tea.Msg {

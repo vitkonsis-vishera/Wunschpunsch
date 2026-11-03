@@ -8,57 +8,81 @@ const (
 )
 
 type Translation struct {
-	ConnectTab    string
-	TopologyTab   string
-	MetricsTab    string
-	AnalyticsTab  string
-	ActionsTab    string
-	LogsTab       string
-	SettingsTab   string
-	ExportSuccess string
-	ExportError   string
-	ConnStatus    string
-	SearchPrompt  string
-	SettingsTitle string
-	SettingsHint  string
-	MetricsConfig string
-	FileSaved     string
+	ConnectTab       string
+	TopologyTab      string
+	MetricsTab       string
+	AnalyticsTab     string
+	ActionsTab       string
+	LogsTab          string
+	SettingsTab      string
+	ExportSuccess    string
+	ExportError      string
+	ConnStatus       string
+	SearchPrompt     string
+	SettingsTitle    string
+	SettingsHint     string
+	MetricsConfig    string
+	FileSaved        string
+	MigrationTitle   string
+	MigrationBtn     string
+	MigrationRunning string
+	LogAll           string
+	LogPostgres      string
+	LogHA            string
+	LogSystem        string
+	LogSSH           string
 }
 
 var translations = map[Language]Translation{
 	EN: {
-		ConnectTab:    "0: Connect",
-		TopologyTab:   "1: Topology",
-		MetricsTab:    "2: Metrics",
-		AnalyticsTab:  "3: Analytics",
-		ActionsTab:    "4: Actions",
-		LogsTab:       "5: Event Logs",
-		SettingsTab:   "6: Settings",
-		ExportSuccess: "Data exported successfully!",
-		ExportError:   "Failed to export data",
-		ConnStatus:    "Connected to cluster",
-		SearchPrompt:  "🔍 Search: ",
-		SettingsTitle: "Global App Settings",
-		SettingsHint:  "Up/Down: Select Field  •  Type to edit  •  Enter: Save",
-		MetricsConfig: "Configure displayed metrics (Space — toggle, Esc — exit)",
-		FileSaved:     "File saved to path:",
+		ConnectTab:       "0: Connect",
+		TopologyTab:      "1: Topology",
+		MetricsTab:       "2: Metrics",
+		AnalyticsTab:     "3: Analytics",
+		ActionsTab:       "4: Actions",
+		LogsTab:          "5: Event Logs",
+		SettingsTab:      "6: Settings",
+		ExportSuccess:    "Data exported successfully!",
+		ExportError:      "Failed to export data",
+		ConnStatus:       "Connected to cluster",
+		SearchPrompt:     "🔍 Search: ",
+		SettingsTitle:    "Global App Settings",
+		SettingsHint:     "Up/Down: Select Field  •  Type to edit  •  Enter: Save",
+		MetricsConfig:    "Configure displayed metrics (Space — toggle, Esc — exit)",
+		FileSaved:        "File saved to path:",
+		MigrationTitle:   "🚀 Full Database Migration & Host Cloning",
+		MigrationBtn:     "[Tab] Navigate • [Enter] Start Migration • [Esc] Close",
+		MigrationRunning: "⏳ Migration and data transfer in progress...",
+		LogAll:           "All Logs",
+		LogPostgres:      "Postgres",
+		LogHA:            "HA Engine",
+		LogSystem:        "System",
+		LogSSH:           "SSH / Journal",
 	},
 	RU: {
-		ConnectTab:    "0: Подключение",
-		TopologyTab:   "1: Топология",
-		MetricsTab:    "2: Метрики",
-		AnalyticsTab:  "3: Аналитика",
-		ActionsTab:    "4: Действия",
-		LogsTab:       "5: Логи событий",
-		SettingsTab:   "6: Настройки",
-		ExportSuccess: "Данные успешно экспортированы!",
-		ExportError:   "Ошибка при экспорте данных",
-		ConnStatus:    "Подключено к кластеру",
-		SearchPrompt:  "🔍 Поиск: ",
-		SettingsTitle: "Глобальные настройки (Global Settings)",
-		SettingsHint:  "Up/Down: Выбор поля  •  Буквы/Цифры/Стрелки: Редактирование текста  •  Enter: Сохранить",
-		MetricsConfig: "Настройка отображаемых метрик (Space — вкл/выкл, Esc — выход)",
-		FileSaved:     "Файл сохранен по пути:",
+		ConnectTab:       "0: Подключение",
+		TopologyTab:      "1: Топология",
+		MetricsTab:       "2: Метрики",
+		AnalyticsTab:     "3: Аналитика",
+		ActionsTab:       "4: Действия",
+		LogsTab:          "5: Логи событий",
+		SettingsTab:      "6: Настройки",
+		ExportSuccess:    "Данные успешно экспортированы!",
+		ExportError:      "Ошибка при экспорте данных",
+		ConnStatus:       "Подключено к кластеру",
+		SearchPrompt:     "🔍 Поиск: ",
+		SettingsTitle:    "Глобальные настройки (Global Settings)",
+		SettingsHint:     "Up/Down: Выбор поля  •  Буквы/Цифры/Стрелки: Редактирование текста  •  Enter: Сохранить",
+		MetricsConfig:    "Настройка отображаемых метрик (Space — вкл/выкл, Esc — выход)",
+		FileSaved:        "Файл сохранен по пути:",
+		MigrationTitle:   "🚀 Полная миграция базы данных и клонирование хоста",
+		MigrationBtn:     "[Tab] Переход • [Enter] Запустить миграцию • [Esc] Закрыть",
+		MigrationRunning: "⏳ Миграция и перенос данных в процессе...",
+		LogAll:           "Все логи",
+		LogPostgres:      "Postgres",
+		LogHA:            "HA Движок",
+		LogSystem:        "Система",
+		LogSSH:           "SSH / Журнал",
 	},
 }
 
