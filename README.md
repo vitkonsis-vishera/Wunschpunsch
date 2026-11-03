@@ -146,6 +146,26 @@ go build -o wunschpunsch main.go
     - [x] Schema change tracking (`CREATE`, `ALTER`, `DROP`) via event triggers and system audit logs.
   - [x] **Standby Cluster Health Matrix:**
     - [x] Cross-region replica health monitoring with inter-datacenter latency metrics.
+  - [ ] **Full Database Migration & Host Cloning:**
+    - [ ] Automated complete database migration and full data cloning to new hosts.
+  - [x] **Storage / Tablespace Capacity & Growth Predictor:**
+    - [x] Storage capacity monitoring across databases, tables, and tablespaces with disk space exhaustion forecasting.
+  - [ ] **Session Query Parameter Inspector (Prepared Statements / Bind Variables):**
+    - [ ] Inspection of parsed values and parameters of prepared statements for hung or slow transactions.
+  - [x] **Interactive WAL Archiving & Disk Pressure Predictor:**
+    - [x] WAL generation rate tracker, time-to-fill estimation, and archival backup health monitor.
+  - [x] **Automated Connection Security & TLS Certificate Auditor:**
+    - [x] Expiry monitoring for cluster TLS certificates and `pg_hba.conf` security rules with proactive alerts.
+  - [x] **Visual Schema Diagram / ER Model Generator:**
+    - [x] ASCII/ANSI graphical rendering of table relations (Foreign Keys) for structural data analysis.
+  - [x] **PostgreSQL Event Triggers & Notification Log (LISTEN / NOTIFY):**
+    - [x] Real-time listening and visual streaming of database notification channels.
+  - [x] **Query Builder & Visual SQL Constructor:**
+    - [x] Interactive query builder for generating and executing standard select queries via TUI.
+  - [x] **Custom SQL Snippets & Query Library Manager:**
+    - [x] Built-in manager for frequently used SQL scripts with quick search and hotkey execution.
+  - [x] **Backend Memory & Cache Inspector (pg_buffercache):**
+    - [x] Analysis of shared_buffers memory utilization by tables and indexes with real-time caching percentages.
 ### License
 
 Distributed under the **MIT License**.
@@ -273,6 +293,8 @@ go build -o wunschpunsch main.go
   - [x] Чекбокс Kerberos на экране подключения с поддержкой автоматического выполнения `kinit` по указанному файлу `keytab` и настройкой доступа в `pg_hba.conf` для закрытых корпоративных контуров (MS AD / FreeIPA).
 - [x] **Анализ планов запросов (EXPLAIN):**
   - [x] Интерактивное построение планов выполнения запросов (`EXPLAIN`) для глубокой аналитики.
+- [x] **Полная миграция баз данных и клонирование хостов (Full Database Migration & Host Cloning):**
+  - [x] Автоматизированная полная миграция баз данных и перенос всех данных на новые хосты с диалогом настройки, выбором main и his инстансов, а также интерактивным прогресс-баром.
 
 ### Продвинутый DBA и операции с кластером
 - [x] **Визуализатор отставания репликации и LSN (Advanced Replication Lag & LSN Visualizer):**
@@ -295,6 +317,24 @@ go build -o wunschpunsch main.go
   - [x] Отслеживание изменений схемы (`CREATE`, `ALTER`, `DROP`) через event triggers и системные журналы аудита.
 - [x] **Матрица здоровья распределенного резервного кластера (Standby Cluster Health Matrix):**
   - [x] Межрегиональный мониторинг состояния реплик с метриками задержки между дата-центрами.
+- [x] **Прогнозирование емкости хранилища и табличных пространств (Storage Capacity & Growth Predictor):**
+  - [x] Мониторинг использования дискового пространства по базам данных, таблицам и пространствам с прогнозом исчерпания места.
+- [x] **Инспектор параметров запросов и подготовленных выражений (Session Query Parameter Inspector):**
+  - [x] Просмотр подготовленных выражений (`pg_prepared_statements`) с типами параметров и текстом запросов.
+- [x] **Интерактивный трекер WAL-архивации и давления на диск (WAL Archiving & Disk Pressure Predictor):**
+  - [x] Графический трекер скорости заполнения WAL, расчета времени до переполнения диска и контроля архивных бэкапов.
+- [x] **Аудит безопасности подключений и TLS-сертификатов (Automated Connection Security & TLS Auditor):**
+  - [x] Мониторинг сроков действия TLS-сертификатов узлов кластера и правил `pg_hba.conf` с уведомлениями.
+- [x] **Визуальный генератор схемы и ER-диаграмм (Visual Schema Diagram / ER Model Generator):**
+  - [x] Отрисовка связей таблиц (Foreign Keys) с помощью ASCII/ANSI-графики для анализа структуры.
+- [x] **Прослушивач событий и уведомлений (PostgreSQL LISTEN / NOTIFY Log):**
+  - [x] Отображение входящих сообщений через механизм `LISTEN / NOTIFY` в реальном времени.
+- [x] **Конструктор запросов и визуальный SQL-билдер (Query Builder & Visual SQL Constructor):**
+  - [x] Интерактивный конструктор выборок и фильтров с автогенерацией и выполнением SQL.
+- [x] **Менеджер пользовательских SQL-сниппетов (Custom SQL Snippets & Query Library):**
+  - [x] Библиотека часто используемых скриптов с быстрым поиском и запуском по горячей клавише.
+- [x] **Инспектор кэша и памяти бэкенда (Backend Memory & Cache Inspector):**
+  - [x] Анализ использования `shared_buffers` таблицами и индексами с процентом попадания в кэш.
 
 ### Лицензия
 

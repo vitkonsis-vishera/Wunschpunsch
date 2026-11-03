@@ -89,11 +89,24 @@ type model struct {
 	tableBloatStats   []postgres.TableBloatStat
 	pgbouncerPools    []postgres.PgBouncerPoolStat
 	replicationLags   []postgres.ReplicationLagStat
+	erDiagramNodes    []postgres.ERDiagramNode
+	bufferCacheStats  []postgres.BufferCacheStat
+	analyticsSection  int
+	analyticsOpen     [6]bool
 
 	showFileBrowser   bool
 	fileBrowserDir    string
 	fileBrowserFiles  []fileItem
 	fileBrowserCursor int
+
+	// Миграция и клонирование хостов
+	showMigrationModal bool
+	migrationInputs    []textinput.Model
+	migrationFocus     int
+	migrationRunning   bool
+	migrationProgress  int
+	migrationStatusMsg string
+	migrationIncludeHis bool
 }
 
 type fileItem struct {
@@ -335,6 +348,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.fetchBloatStatsCmd(m.targetHost),
 						m.fetchPgBouncerPoolsCmd(m.targetHost),
 						m.fetchReplicationLagCmd(m.targetHost),
+						m.fetchERDiagramCmd(m.targetHost),
+						m.fetchBufferCacheCmd(m.targetHost),
 					)
 				}
 			}
@@ -349,6 +364,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case replicationLagLoadedMsg:
 		if msg.err == nil {
 			m.replicationLags = msg.stats
+		}
+
+	case erDiagramLoadedMsg:
+		if msg.err == nil {
+			m.erDiagramNodes = msg.nodes
+		}
+
+	case bufferCacheLoadedMsg:
+		if msg.err == nil {
+			m.bufferCacheStats = msg.stats
 		}
 
 	case bloatLoadedMsg:
@@ -442,26 +467,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateLogsViewport()
 
-	case exportFinishedMsg:
+	case migrationResultMsg:
+		m.migrationRunning = false
+		if msg.err != nil {
+			m.migrationStatusMsg = fmt.Sprintf("❌ Ошибка миграции: %v", msg.err)
+		} else {
+			m.migrationProgress = 100
+			m.migrationStatusMsg = msg.message
+		}
 		entry := LogEntry{
 			Timestamp: time.Now().Format("15:04:05"),
 			Node:      "TUI Console",
 			Component: "System",
 			Level:     "INFO",
-			Message:   fmt.Sprintf("Metrics snapshot saved to: %s", msg.filePath),
+			Message:   msg.message,
 		}
 
 		if msg.err != nil {
 			entry.Level = "ERROR"
-			entry.Message = fmt.Sprintf("Metrics export failed: %v", msg.err)
+			entry.Message = fmt.Sprintf("Migration failed: %v", msg.err)
 			m.modalMsg = msg.err.Error()
 			m.modalIsErr = true
 		} else {
-			m.modalMsg = msg.filePath
+			m.modalMsg = msg.message
 			m.modalIsErr = false
 		}
 
 		m.showModal = true
+		m.logs = append(m.logs, entry)
+		m.updateLogsViewport()
 
 		m.logs = append(m.logs, entry)
 		if m.logExporter != nil {
@@ -566,6 +600,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+
+		if m.showMigrationModal {
+			if m.migrationRunning {
+				return m, nil
+			}
+			switch msg.String() {
+			case "esc":
+				m.showMigrationModal = false
+				return m, nil
+			case "up":
+				if m.migrationFocus > 0 {
+					m.migrationFocus--
+					for i := range m.migrationInputs {
+						if i == m.migrationFocus {
+							m.migrationInputs[i].Focus()
+						} else {
+							m.migrationInputs[i].Blur()
+						}
+					}
+				}
+			case "down":
+				if m.migrationFocus < len(m.migrationInputs) {
+					m.migrationFocus++
+					for i := range m.migrationInputs {
+						if i == m.migrationFocus {
+							m.migrationInputs[i].Focus()
+						} else {
+							m.migrationInputs[i].Blur()
+						}
+					}
+				}
+			case " ":
+				if m.migrationFocus == len(m.migrationInputs) {
+					m.migrationIncludeHis = !m.migrationIncludeHis
+				}
+			case "enter":
+				m.migrationRunning = true
+				m.migrationProgress = 10
+				m.migrationStatusMsg = "Подключение к целевому хосту и проверка каталогов..."
+				return m, m.executeMigrationCmd(
+					m.migrationInputs[0].Value(),
+					"main",
+					m.migrationInputs[1].Value(),
+					m.migrationInputs[2].Value(),
+				)
+			}
+			var cmd tea.Cmd
+			if m.migrationFocus < len(m.migrationInputs) {
+				m.migrationInputs[m.migrationFocus], cmd = m.migrationInputs[m.migrationFocus].Update(msg)
+			}
+			return m, cmd
 		}
 
 		if m.showConfirmationModal {
@@ -773,8 +859,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.fetchPgBouncerPoolsCmd(m.targetHost),
 					m.fetchReplicationLagCmd(m.targetHost),
 				)
+			case "enter":
+				if m.analyticsSection >= 0 && m.analyticsSection < 6 {
+					m.analyticsOpen[m.analyticsSection] = !m.analyticsOpen[m.analyticsSection]
+				}
 			case "up":
-				if len(m.activeLocks) > 0 {
+				if m.analyticsSection > 0 {
+					m.analyticsSection--
+				} else if len(m.activeLocks) > 0 {
 					for i, l := range m.activeLocks {
 						if l.PID == m.selectedPID && i > 0 {
 							m.selectedPID = m.activeLocks[i-1].PID
@@ -783,7 +875,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case "down":
-				if len(m.activeLocks) > 0 {
+				if m.analyticsSection < 5 {
+					m.analyticsSection++
+				} else if len(m.activeLocks) > 0 {
 					for i, l := range m.activeLocks {
 						if l.PID == m.selectedPID && i < len(m.activeLocks)-1 {
 							m.selectedPID = m.activeLocks[i+1].PID
@@ -847,18 +941,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.tab == tabActions && m.connected {
+			actions := GetDefaultActions(m.settings.Language == LangRU)
+			selectedAction := ""
+			if m.actionsSelectedIndex >= 0 && m.actionsSelectedIndex < len(actions) {
+				selectedAction = actions[m.actionsSelectedIndex].ID
+			}
+
 			switch msg.String() {
 			case "up", "k":
 				if m.actionsSelectedIndex > 0 {
 					m.actionsSelectedIndex--
 				}
 			case "down", "j":
-				actions := GetDefaultActions(m.settings.Language == LangRU)
 				if m.actionsSelectedIndex < len(actions)-1 {
 					m.actionsSelectedIndex++
 				}
 			case "enter":
-				m.showConfirmationModal = true
+				if selectedAction == "migrate_host" {
+					m.showMigrationModal = true
+					m.migrationInputs = make([]textinput.Model, 4)
+					m.migrationInputs[0] = textinput.New()
+					m.migrationInputs[0].Placeholder = "192.168.1.50"
+					m.migrationInputs[0].Prompt = "Target Host: "
+					m.migrationInputs[0].Width = 30
+					m.migrationInputs[0].Focus()
+
+					m.migrationInputs[1] = textinput.New()
+					m.migrationInputs[1].Placeholder = "postgres"
+					m.migrationInputs[1].Prompt = "PG User:     "
+					m.migrationInputs[1].Width = 30
+
+					m.migrationInputs[2] = textinput.New()
+					m.migrationInputs[2].Placeholder = "secret"
+					m.migrationInputs[2].EchoMode = textinput.EchoPassword
+					m.migrationInputs[2].EchoCharacter = '•'
+					m.migrationInputs[2].Prompt = "PG Password: "
+					m.migrationInputs[2].Width = 30
+
+					m.migrationInputs[3] = textinput.New()
+					m.migrationInputs[3].Placeholder = "/var/lib/postgresql"
+					m.migrationInputs[3].Prompt = "Data Path:   "
+					m.migrationInputs[3].Width = 40
+					m.migrationFocus = 0
+					m.migrationIncludeHis = true
+				} else {
+					m.showConfirmationModal = true
+				}
 			}
 
 			if m.detectedEngine == EnginePatroni {

@@ -30,6 +30,10 @@ func (m model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderNodeMenuModal())
 	}
 
+	if m.showMigrationModal {
+		return m.renderMigrationModal()
+	}
+
 	if m.showDCSModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderDCSModal())
 	}
@@ -213,7 +217,7 @@ func (m model) View() string {
 			var renderedSubTabs []string
 
 			for _, st := range subTabs {
-				label := fmt.Sprintf(" %s ", st.String())
+				label := fmt.Sprintf(" %s ", st.LocalizedString(t))
 				if st == m.activeLogSubTab {
 					renderedSubTabs = append(renderedSubTabs, lipgloss.NewStyle().
 						Bold(true).
@@ -302,80 +306,125 @@ func (m model) renderAnalyticsTab() string {
 		s.WriteString(lipgloss.NewStyle().Foreground(dangerColor).Render("⚠️  " + m.analyticsErr + "\n\n"))
 	}
 
-	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("🔥 Top Slow Queries (pg_stat_statements)\n\n"))
-
-	if len(m.topQueries) == 0 {
-		s.WriteString(" Запросы не найдены или расширение pg_stat_statements не активировано.\n\n")
-	} else {
-		s.WriteString(fmt.Sprintf("%-60s | %-10s | %-12s | %-10s\n", "Query", "Calls", "Total Time", "Mean Time"))
-		s.WriteString(strings.Repeat("-", 100) + "\n")
-		for _, q := range m.topQueries {
-			queryText := q.Query
-			if len(queryText) > 58 {
-				queryText = queryText[:55] + "..."
-			}
-			s.WriteString(fmt.Sprintf("%-60s | %-10d | %-10.2fms | %-8.2fms\n",
-				queryText, q.Calls, q.TotalTime, q.MeanTime))
-		}
-		s.WriteString("\n")
+	headers := []struct {
+		title string
+		color lipgloss.Color
+	}{
+		{"🔥 Top Slow Queries (pg_stat_statements)", lipgloss.Color("205")},
+		{"🔒 Active Locks & Hung Transactions (> 2s)", lipgloss.Color("214")},
+		{"⚡ PgBouncer Pools Status (SHOW POOLS)", lipgloss.Color("120")},
+		{"📊 Advanced Replication Lag & LSN Visualizer (pg_stat_replication)", lipgloss.Color("86")},
+		{"🗺️  Visual Schema Diagram / ER Model Generator (Foreign Keys)", lipgloss.Color("220")},
+		{"🧠 Backend Memory & Cache Inspector (pg_buffercache / shared_buffers)", lipgloss.Color("141")},
 	}
 
-	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("🔒 Active Locks & Hung Transactions (> 2s)\n\n"))
-
-	if len(m.activeLocks) == 0 {
-		s.WriteString(" 🟢 Нет зависших транзакций и блокировок.\n\n")
-	} else {
-		s.WriteString(fmt.Sprintf("%-8s | %-12s | %-10s | %-10s | %-40s\n", "PID", "User", "State", "Duration", "Query"))
-		s.WriteString(strings.Repeat("-", 95) + "\n")
-		for _, l := range m.activeLocks {
-			prefix := "  "
-			if l.PID == m.selectedPID {
-				prefix = "👉"
-			}
-			qText := l.Query
-			if len(qText) > 38 {
-				qText = qText[:35] + "..."
-			}
-			s.WriteString(fmt.Sprintf("%s %-6d | %-12s | %-10s | %-8.1fs | %-40s\n",
-				prefix, l.PID, l.User, l.State, l.DurationSec, qText))
+	for i, h := range headers {
+		cursor := "  "
+		arrow := "▶"
+		if m.analyticsSection == i {
+			cursor = "👉 "
 		}
-		s.WriteString("\n")
-		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(
-			"Подсказка: [k] Мягкая отмена (pg_cancel_backend) | [K] Принудительное завершение (pg_terminate_backend) | [r] Обновить",
-		))
-		s.WriteString("\n\n")
-	}
-
-	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("120")).Render("⚡ PgBouncer Pools Status (SHOW POOLS)\n\n"))
-
-	if len(m.pgbouncerPools) == 0 {
-		s.WriteString(" ℹ️ Нет данных пулов PgBouncer (убедитесь, что подключены к порту PgBouncer, например 6432).\n\n")
-	} else {
-		s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8s | %-10s | %-8s | %-8s | %-8s\n", "Database", "User", "ClActive", "ClWaiting", "SvActive", "SvIdle", "MaxWait"))
-		s.WriteString(strings.Repeat("-", 80) + "\n")
-		for _, p := range m.pgbouncerPools {
-			s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8d | %-10d | %-8d | %-8d | %-8ds\n",
-				p.Database, p.User, p.ClActive, p.ClWaiting, p.SvActive, p.SvIdle, p.Maxwait))
+		if m.analyticsOpen[i] {
+			arrow = "▼"
 		}
-		s.WriteString("\n")
-	}
+		titleStr := fmt.Sprintf("%s %s %s\n", cursor, arrow, h.title)
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(h.color).Render(titleStr))
 
-	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86")).Render("📊 Advanced Replication Lag & LSN Visualizer (pg_stat_replication)\n\n"))
-
-	if len(m.replicationLags) == 0 {
-		s.WriteString(" ℹ️ Нет активных реплик или подключены к Standby-ноде (нет WAL senders).\n\n")
-	} else {
-		s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n", "Client Addr", "App Name", "State", "Sync", "Replay LSN", "Replay Lag", "Byte Lag"))
-		s.WriteString(strings.Repeat("-", 95) + "\n")
-		for _, r := range m.replicationLags {
-			byteLagFormatted := fmt.Sprintf("%d B", r.ByteLag)
-			if r.ByteLag > 1024*1024 {
-				byteLagFormatted = fmt.Sprintf("%.2f MB", float64(r.ByteLag)/(1024*1024))
-			} else if r.ByteLag > 1024 {
-				byteLagFormatted = fmt.Sprintf("%.2f KB", float64(r.ByteLag)/1024)
+		if m.analyticsOpen[i] {
+			s.WriteString("\n")
+			switch i {
+			case 0:
+				if len(m.topQueries) == 0 {
+					s.WriteString(" Запросы не найдены или расширение pg_stat_statements не активировано.\n\n")
+				} else {
+					s.WriteString(fmt.Sprintf("%-60s | %-10s | %-12s | %-10s\n", "Query", "Calls", "Total Time", "Mean Time"))
+					s.WriteString(strings.Repeat("-", 100) + "\n")
+					for _, q := range m.topQueries {
+						queryText := q.Query
+						if len(queryText) > 58 {
+							queryText = queryText[:55] + "..."
+						}
+						s.WriteString(fmt.Sprintf("%-60s | %-10d | %-10.2fms | %-8.2fms\n",
+							queryText, q.Calls, q.TotalTime, q.MeanTime))
+					}
+					s.WriteString("\n")
+				}
+			case 1:
+				if len(m.activeLocks) == 0 {
+					s.WriteString(" 🟢 Нет зависших транзакций и блокировок.\n\n")
+				} else {
+					s.WriteString(fmt.Sprintf("%-8s | %-12s | %-10s | %-10s | %-40s\n", "PID", "User", "State", "Duration", "Query"))
+					s.WriteString(strings.Repeat("-", 95) + "\n")
+					for _, l := range m.activeLocks {
+						prefix := "  "
+						if l.PID == m.selectedPID {
+							prefix = "👉"
+						}
+						qText := l.Query
+						if len(qText) > 38 {
+							qText = qText[:35] + "..."
+						}
+						s.WriteString(fmt.Sprintf("%s %-6d | %-12s | %-10s | %-8.1fs | %-40s\n",
+							prefix, l.PID, l.User, l.State, l.DurationSec, qText))
+					}
+					s.WriteString("\n")
+					s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(
+						"Подсказка: [k] Мягкая отмена (pg_cancel_backend) | [K] Принудительное завершение (pg_terminate_backend) | [r] Обновить",
+					))
+					s.WriteString("\n\n")
+				}
+			case 2:
+				if len(m.pgbouncerPools) == 0 {
+					s.WriteString(" ℹ️ Нет данных пулов PgBouncer (убедитесь, что подключены к порту PgBouncer, например 6432).\n\n")
+				} else {
+					s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8s | %-10s | %-8s | %-8s | %-8s\n", "Database", "User", "ClActive", "ClWaiting", "SvActive", "SvIdle", "MaxWait"))
+					s.WriteString(strings.Repeat("-", 80) + "\n")
+					for _, p := range m.pgbouncerPools {
+						s.WriteString(fmt.Sprintf("%-16s | %-12s | %-8d | %-10d | %-8d | %-8d | %-8ds\n",
+							p.Database, p.User, p.ClActive, p.ClWaiting, p.SvActive, p.SvIdle, p.Maxwait))
+					}
+					s.WriteString("\n")
+				}
+			case 3:
+				if len(m.replicationLags) == 0 {
+					s.WriteString(" ℹ️ Нет активных реплик или подключены к Standby-ноде (нет WAL senders).\n\n")
+				} else {
+					s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n", "Client Addr", "App Name", "State", "Sync", "Replay LSN", "Replay Lag", "Byte Lag"))
+					s.WriteString(strings.Repeat("-", 95) + "\n")
+					for _, r := range m.replicationLags {
+						byteLagFormatted := fmt.Sprintf("%d B", r.ByteLag)
+						if r.ByteLag > 1024*1024 {
+							byteLagFormatted = fmt.Sprintf("%.2f MB", float64(r.ByteLag)/(1024*1024))
+						} else if r.ByteLag > 1024 {
+							byteLagFormatted = fmt.Sprintf("%.2f KB", float64(r.ByteLag)/1024)
+						}
+						s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n",
+							r.ClientAddr, r.ApplicationName, r.State, r.SyncState, r.ReplayLSN, r.ReplayLag, byteLagFormatted))
+					}
+					s.WriteString("\n")
+				}
+			case 4:
+				if len(m.erDiagramNodes) == 0 {
+					s.WriteString(" ℹ️ Связи Foreign Key не обнаружены или база данных пуста.\n\n")
+				} else {
+					if m.pgManager != nil {
+						s.WriteString(m.pgManager.RenderANSIERDiagram(m.erDiagramNodes))
+						s.WriteString("\n")
+					}
+				}
+			case 5:
+				if len(m.bufferCacheStats) == 0 {
+					s.WriteString(" ℹ️ Нет данных shared_buffers или таблиц в кэше.\n\n")
+				} else {
+					s.WriteString(fmt.Sprintf("%-20s | %-12s | %-14s | %-12s\n", "Relation Name", "Size", "Cached Buffers", "Cache %"))
+					s.WriteString(strings.Repeat("-", 65) + "\n")
+					for _, b := range m.bufferCacheStats {
+						s.WriteString(fmt.Sprintf("%-20s | %-12s | %-14d | %-10.2f%%\n",
+							b.RelationName, b.SizePretty, b.BuffersCached, b.PercentCached))
+					}
+					s.WriteString("\n")
+				}
 			}
-			s.WriteString(fmt.Sprintf("%-15s | %-16s | %-10s | %-10s | %-12s | %-12s | %-10s\n",
-				r.ClientAddr, r.ApplicationName, r.State, r.SyncState, r.ReplayLSN, r.ReplayLag, byteLagFormatted))
 		}
 		s.WriteString("\n")
 	}
@@ -696,6 +745,79 @@ func (m *model) renderMetricsConfigView(containerWidth int) string {
 	}
 
 	return boxStyle.Width(containerWidth).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderMigrationModal() string {
+	if !m.showMigrationModal {
+		return ""
+	}
+
+	isRU := m.settings.Language == LangRU
+	titleText := "🚀 Full Database Migration & Host Cloning"
+	if isRU {
+		titleText = "🚀 Полная миграция и клонирование хоста БД"
+	}
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(primaryColor).Render(titleText)
+
+	var lines []string
+	lines = append(lines, title)
+	lines = append(lines, "")
+
+	for i, input := range m.migrationInputs {
+		cursor := " "
+		if i == m.migrationFocus {
+			cursor = ">"
+			input.TextStyle = lipgloss.NewStyle().Foreground(primaryColor).Bold(true)
+		} else {
+			input.TextStyle = lipgloss.NewStyle().Foreground(subtleColor)
+		}
+		lines = append(lines, fmt.Sprintf(" %s %s", cursor, input.View()))
+	}
+
+	// Чекбокс для переноса his инстанса
+	hisCursor := " "
+	if m.migrationFocus == len(m.migrationInputs) {
+		hisCursor = ">"
+	}
+	hisCheck := "[ ]"
+	if m.migrationIncludeHis {
+		hisCheck = "[x]"
+	}
+	hisLabel := "Включить также исторический инстанс (his)"
+	if !isRU {
+		hisLabel = "Include historical instance (his) as well"
+	}
+	lines = append(lines, fmt.Sprintf(" %s %s %s", hisCursor, hisCheck, hisLabel))
+	lines = append(lines, "")
+
+	if m.migrationRunning {
+		bar := drawProgressBar(float64(m.migrationProgress), 30)
+		lines = append(lines, lipgloss.NewStyle().Foreground(warningColor).Bold(true).Render(m.migrationStatusMsg))
+		lines = append(lines, fmt.Sprintf(" Прогресс: %s %d%%", bar, m.migrationProgress))
+	} else {
+		btnStr := "[Tab] Навигация • [Enter] Запустить миграцию • [Esc] Отмена"
+		if !isRU {
+			btnStr = "[Tab] Navigate • [Enter] Start Migration • [Esc] Cancel"
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(subtleColor).Render(btnStr))
+	}
+
+	content := strings.Join(lines, "\n")
+
+	modalBox := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(primaryColor).
+		Padding(1, 4).
+		Render(content)
+
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modalBox,
+	)
 }
 
 func (m model) renderMetricsTabContent() string {

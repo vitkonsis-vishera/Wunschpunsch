@@ -68,6 +68,13 @@ func GetDefaultActions(isRU bool) []ActionItem {
 				Query:       "VACUUM FULL;",
 				Risk:        RiskHigh,
 			},
+			{
+				ID:          "migrate_host",
+				Name:        "Полная миграция и клонирование БД",
+				Description: "Перенос инстансов (main/his) на новые целевые хосты с прогресс-баром",
+				Query:       "",
+				Risk:        RiskHigh,
+			},
 		}
 	}
 
@@ -112,6 +119,13 @@ func GetDefaultActions(isRU bool) []ActionItem {
 			Name:        "VACUUM FULL (Blocking!)",
 			Description: "Full table rewrite to reclaim disk space. BLOCKS TABLES!",
 			Query:       "VACUUM FULL;",
+			Risk:        RiskHigh,
+		},
+		{
+			ID:          "migrate_host",
+			Name:        "Full Database Migration & Cloning",
+			Description: "Transfer database instances (main/his) to new target hosts with progress",
+			Query:       "",
 			Risk:        RiskHigh,
 		},
 	}
